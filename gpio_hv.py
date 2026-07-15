@@ -2,25 +2,35 @@
 Control the Brightness of LED using PWM on Raspberry Pi
 http://www.electronicwings.com
 '''
-
-import RPi.GPIO as GPIO
+#import Photonic
+#import RPi.GPIO as GPIO
+#from gpiozero import LED, PWMLED, Button
+import gpiozero
 from time import sleep
 
-hv_pwm_pin = 13			# PWM pin connected to LED
-hv_active_pin = 19
+hv_pwm_pin = 19			# PWM pin connected to LED
+hv_active_pin = 22
+hv_power_pin = 5
 
-GPIO.setwarnings(True)			#disable warnings
-GPIO.setmode(GPIO.BCM)		#set pin numbering system
-GPIO.setup(hv_pwm_pin,GPIO.OUT)
-GPIO.setup(hv_active_pin,GPIO.OUT)
-
-hv_pwm = GPIO.PWM(hv_pwm_pin,1000)		#create PWM instance with frequency
-hv_pwm.start(0)				#start PWM of required Duty Cycle 
-hv_pwm.ChangeDutyCycle(20)
-
-GPIO.output(hv_active_pin, True)
-
-sleep(9999999)
+hv_pwm = gpiozero.PWMOutputDevice(hv_pwm_pin)
+hv_active = gpiozero.OutputDevice(hv_active_pin)
+hv_present = gpiozero.InputDevice(hv_power_pin)
 
 
+print(hv_present.value)
 
+hv_pwm.value = 0.25
+print(f"Pin {hv_pwm_pin} set to {hv_pwm.value}")
+
+hv_active.on()
+print(f"Pin {hv_active_pin} HIGH")
+
+sleep(0.3)
+
+print(f"Pin {hv_active_pin} LOW")
+hv_active.off()
+
+print(f"Pin {hv_pwm_pin} set to 0")
+hv_pwm.value = 0
+
+print(hv_present.value)

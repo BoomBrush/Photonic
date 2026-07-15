@@ -6,6 +6,6 @@ echo $ARGUMENT
 echo END ACTION
 
 if [ $ACTION = "download" ]; then
-   sleep 1
+#   sleep 1
    python client.py $ARGUMENT
 fi
