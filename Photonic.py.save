@@ -1,0 +1,311 @@
+import threading, subprocess, signal, ctypes
+import http.server, socketserver
+import socket, requests
+import serial
+import tinytuya
+import atexit
+import os
+import time
+import psutil
+
+#from gpiozero import LED, PWMLED, Button
+import gpiozero
+from PIL import Image
+from time import sleep
+from io import BytesIO
+from signal import pthread_kill, SIGTSTP
+import gphoto2 as gp
+
+# Stepper motor steps for full rotation
+FULL_ROTATION_STEPS = 3200
+
+# Pins
+CAMERA_PIN = 4
+FILAMENT_MOSFET_PIN = 12
+FILAMENT_RELAY_PIN = 23
+HV_PRESENT_PIN = 5
+HV_ACTIVE_PIN = 17
+HV_PWM_PIN = 19
+STEPPER_STEP_PIN = 21
+STEPPER_DIRECTION_PIN = 20
+STEPPER_ENABLE_PIN = 16
+
+# Absolute limits
+MAX_FILAMENT_CURRENT = 1.80
+MAX_HV_POWER = 50
+MAX_DURATION = 5000
+FILAMENT_WAIT_TIME = 100
+STEPPER_STEPS_PER_ROTATION = 200
+STEPPER_SPEED = 0.001
+CAMERA_TIMEOUT = 20
+
+class GPhoto(threading.Thread):
+    def __init__(self, disable_timeout=False):
+        threading.Thread.__init__(self)
+        self.disable_timeout = disable_timeout
+        self.camera = gp.Camera()
+        self.camera_detected = False
+        self.running = False
+
+        camera_list = list(gp.Camera.autodetect())
+
+        if len(camera_list) > 0:
+            self.camera.init()
+            print(camera_list[0][0], "initialized")
+
+            self.camera_detected = True
+            self.running = True
+        else:
+            print("WARNING: No DSLR camera detected")
+            raise gp.GPhoto2Error(1)
+
+        self.timeout = 3000  # milliseconds
+        self.captured_done = threading.Event()
+        self.captured_filepath = None
+
+    def run(self):
+        print("GPhoto2 thread running and waiting for image...")
+
+        if self.disable_timeout:
+            start_time = 9999999999
+        else:
+            start_time = time.time()
+
+        while not self.captured_done.is_set() and (start_time + CAMERA_TIMEOUT) > time.time():
+            self.capture_successful = False
+            event_type, event_data = self.camera.wait_for_event(self.timeout)
+            if event_type == gp.GP_EVENT_FILE_ADDED:
+                cam_file = self.camera.file_get(event_data.folder, event_data.name, gp.GP_FILE_TYPE_NORMAL)
+                target_path = os.path.join("/home/boombrush/XRAY/imgs/raw", event_data.name)
+                cam_file.save(target_path)
+
+                self.captured_done.set()
+                self.capture_successful = True
+                self.captured_filepath = target_path
+
+        # Release main thread upon timing out and no picture is taken
+        print("Gphoto2 thread timed out")
+        if not self.captured_done.is_set():
+            self.captured_done.set()
+
+    def kill(self):
+        print("Ending gphoto2 thread")
+        self.running = False
+
+
+class Machine():
+    def __init__(self, ignore_camera=False, skip_filament=False):
+        # Class variables
+        self.ignore_camera = ignore_camera
+        self.skip_filament = skip_filament
+        self.http_server_process = None
+
+        # Kill other Python XRAY processes
+        self.kill_other_python_processes()
+
+        # DSLR Init
+        if not self.ignore_camera:
+            try:
+                self.dslr = GPhoto()
+            except gp.GPhoto2Error as e:
+                print("GPhoto2 error:", e)
+                exit()
+
+        # Start camera thread
+        if not self.ignore_camera:
+            self.dslr.start()
+
+        # ESP32 init
+        self.esp32_init()
+
+        # GPIO Inits
+        try:
+            self.initialize_gpio()
+        except Exception as e:
+            print("Error:", e)
+            print("A different Python thread is running")
+            exit()
+
+        self.camera(False)
+        self.filament(False)
+        self.hv_enable(False)
+        self.hv_pwm(0)
+
+        self.stepper_step.off()
+        self.stepper_direction.off()
+        self.stepper_enable.on()
+
+        # HV PSU powered check
+        if self.gpio_hv_present.value == 1:
+            print("HV PSU Detected")
+        else:
+            print("WARNING: HV PSU NOT DETECTED")
+
+    def kill_other_python_processes(self):
+        current_pid = os.getpid()
+
+        for process_id in psutil.pids():
+            if process_id == current_pid: continue
+
+            try:
+                p = psutil.Process(process_id)
+            except psutil.NoSuchProcess:
+                continue
+
+            if p.name() == "python":
+                cmd_line = p.cmdline()
+
+                if 'http_server' not in cmd_line[1]:
+                    print("Killing XRAY script:", cmd_line)
+                    p.kill()
+
+    def initialize_gpio(self):
+        self.gpio_hv_present = gpiozero.InputDevice(HV_PRESENT_PIN)
+        self.gpio_hv_enable = gpiozero.OutputDevice(HV_ACTIVE_PIN)
+        self.gpio_hv_pwm = gpiozero.PWMOutputDevice(HV_PWM_PIN)
+        self.gpio_filament_mosfet = gpiozero.OutputDevice(FILAMENT_MOSFET_PIN)
+        self.gpio_filament_relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
+        self.gpio_camera = gpiozero.OutputDevice(CAMERA_PIN)
+
+        self.stepper_step = gpiozero.OutputDevice(STEPPER_STEP_PIN)
+        self.stepper_direction = gpiozero.OutputDevice(STEPPER_DIRECTION_PIN)
+        self.stepper_enable = gpiozero.OutputDevice(STEPPER_ENABLE_PIN)
+
+    def esp32_init(self):
+        try:
+            self.esp32_ser = serial.Serial('/dev/ttyS0', 1000000, timeout=1)
+        except Exception as e:
+            print("ESP32 failed to initialize:", e)
+            return False
+
+    def stepper_move(self, steps):
+        self.stepper_enable.off()
+
+        for _ in range(steps):
+            self.stepper_step.on()
+            sleep(STEPPER_SPEED)
+            self.stepper_step.off()
+            sleep(STEPPER_SPEED)
+
+        self.stepper_enable.on()
+
+    def capture(self, power, duration, filament_current=MAX_FILAMENT_CURRENT):
+        # Enforce absolute limits
+        if power > MAX_HV_POWER: power = MAX_HV_POWER
+        if duration > MAX_DURATION: duration = MAX_DURATION
+        if filament_current > MAX_FILAMENT_CURRENT: filament_current = MAX_FILAMENT_CURRENT
+
+        # Wait for filament to heat up and for HV to sync with pwm
+        self.hv_pwm(power / 100)
+        if not self.skip_filament:
+            self.filament(True, filament_current)
+            sleep(FILAMENT_WAIT_TIME / 1000)
+
+        # Turn HV and camera on then wait
+        self.hv_enable(True)
+        if not self.ignore_camera:
+            self.camera(True)
+        print("Capture started. Waiting", duration, "ms")
+        sleep(duration / 1000)
+
+        # Turn camera, HV and filament off
+        self.camera(False)
+        self.hv_enable(False)
+        self.filament(False)
+        self.hv_pwm(0)
+
+        # Return if ignoring camera
+        if self.ignore_camera:
+            print("Ignoring camera")
+            return None
+        elif not self.dslr.camera_detected:
+            return None
+
+        # Get image from camera
+        print("Waiting for camera capture event")
+        self.dslr.capture_done.wait()
+        print("Camera capture event recieved")
+        self.dslr.captured_done.clear()
+
+        if not self.dslr.capture_successful:
+            return None
+
+        img = Image.open(self.dslr.captured_filepath).convert('L')
+        return img
+
+    def filament(self, state, value=None):
+        if state:
+            self.gpio_filament_relay.on()
+
+            if value:
+                self.gpio_filament_mosfet.value = float(value) / MAX_FILAMENT_CURRENT
+            else:
+                self.gpio_filament_mosfet.value = 1.0
+        else:
+            self.gpio_filament_mosfet.value = 0.0
+            self.gpio_filament_mosfet.off()
+            self.gpio_filament_relay.off()
+
+    def camera(self, state):
+        self.gpio_camera.off() if state else self.gpio_camera.on()
+
+    def hv_enable(self, state):
+        self.gpio_hv_enable.on() if state else self.gpio_hv_enable.off()
+
+    def hv_pwm(self, pwm):
+        if pwm >= 0 and pwm <= 1:
+            self.gpio_hv_pwm.value = pwm
+        else:
+            print("PWM out of range")
+            self.gpio_hv_pwm.value = 0
+
+    def filament_current(self):
+        self.esp32_ser.write('?'.encode())
+        try:
+            line = self.esp32_ser.readline().decode('utf-8').rstrip()
+            #current = float(line) * 0.00795412 - 15.24036691;
+            current = float(line)
+
+        except ValueError:
+            print("SP32 Did not respond to filament current request")
+            current = 0.0
+
+        return current
+
+    def http_server(self, port=8000, keepalive=False):
+        self.http_server_process = HTTP_Server(port, keepalive)
+        self.http_server_process.start()
+
+    def finished(self):
+        self.filament(False)
+        self.hv_enable(False)
+        self.hv_pwm(0)
+
+        if not self.ignore_camera:
+            self.camera(False)
+            self.dslr.kill()
+
+        print("Exiting")
+
+    def listen(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(10)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((HOST, PORT))
+            print("Listening for camera image...")
+            s.listen()
+            try:
+                conn, addr = s.accept()
+            except TimeoutError:
+                print("Timeout error")
+                return None
+            with conn:
+                print(f"Connected by {addr}")
+
+                while True:
+                    data = conn.recv(1024)
+                    if not data:
+                        break
+                    break
+        s.close()
+        return data

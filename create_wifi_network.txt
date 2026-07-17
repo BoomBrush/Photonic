@@ -1,1 +1,8 @@
+Create wifi access point:
 sudo nmcli device wifi hotspot ssid "Photonic Machine" password boombrush ifname wlan0
+
+Reconnect to wifi:
+nmcli device wifi connect boombrush password "8%OCEhJVJhq$t@1"
+ nmcli c add type wifi con-name boombrush ifname wlan0 ssid boombrush
+nmcli con modify boombrush wifi-sec.key-mgmt wpa-psk
+

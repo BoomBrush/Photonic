@@ -9,7 +9,7 @@ import gpiozero
 from time import sleep
 
 hv_pwm_pin = 19			# PWM pin connected to LED
-hv_active_pin = 22
+hv_active_pin = 27
 hv_power_pin = 5
 
 hv_pwm = gpiozero.PWMOutputDevice(hv_pwm_pin)
@@ -17,9 +17,12 @@ hv_active = gpiozero.OutputDevice(hv_active_pin)
 hv_present = gpiozero.InputDevice(hv_power_pin)
 
 
-print(hv_present.value)
+if hv_present.value == 1:
+    print("HV PSU Detected")
+else:
+    print("WARNING: HV PSU NOT DETECTED")
 
-hv_pwm.value = 0.25
+hv_pwm.value = 0.4
 print(f"Pin {hv_pwm_pin} set to {hv_pwm.value}")
 
 hv_active.on()
@@ -32,5 +35,3 @@ hv_active.off()
 
 print(f"Pin {hv_pwm_pin} set to 0")
 hv_pwm.value = 0
-
-print(hv_present.value)

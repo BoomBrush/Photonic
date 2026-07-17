@@ -1,4 +1,11 @@
+#include <Wire.h>
+#include <Adafruit_INA219.h>
 #include <SpeedyStepper.h>
+
+SpeedyStepper yaw;
+long yaw_angle;
+
+Adafruit_INA219 ina219;
 
 const int YAW_MOTOR_STEP_PIN = 19;
 const int YAW_MOTOR_DIRECTION_PIN = 18;
@@ -13,9 +20,6 @@ String action;
 String value;
 
 float filament_current;
-
-SpeedyStepper yaw;
-long yaw_angle;
 
 float get_filament_current() {
   float loop_total = 0.0;
@@ -40,6 +44,12 @@ float get_filament_current() {
 
 void setup() {
   Serial.begin(1000000);
+  Serial.println("Started");
+
+  if (! ina219.begin()) {
+    Serial.println("Failed to find INA219 chip");
+    while (1) { delay(10); }
+  }
   
   yaw.connectToPins(YAW_MOTOR_STEP_PIN, YAW_MOTOR_DIRECTION_PIN);
   
@@ -56,7 +66,24 @@ void loop() {
     character = Serial.read();
 
     if (character == '?') {
-      Serial.println(filament_current);
+      float shuntvoltage = 0;
+      float busvoltage = 0;
+      float current_mA = 0;
+      float loadvoltage = 0;
+      float power_mW = 0;
+    
+      shuntvoltage = ina219.getShuntVoltage_mV();
+      busvoltage = ina219.getBusVoltage_V();
+      current_mA = ina219.getCurrent_mA();
+      power_mW = ina219.getPower_mW();
+      loadvoltage = busvoltage + (shuntvoltage / 1000);
+      
+      Serial.print("Bus Voltage:   "); Serial.print(busvoltage); Serial.println(" V");
+      Serial.print("Shunt Voltage: "); Serial.print(shuntvoltage); Serial.println(" mV");
+      Serial.print("Load Voltage:  "); Serial.print(loadvoltage); Serial.println(" V");
+      Serial.print("Current:       "); Serial.print(current_mA); Serial.println(" mA");
+      Serial.print("Power:         "); Serial.print(power_mW); Serial.println(" mW");
+      Serial.println("");
     } else if (character == ';') {
       if (content == "STEPPER_ON") {
         Serial.println("Stepper motor enabled");
