@@ -2,7 +2,7 @@ from ina219 import INA219
 from time import sleep
 
 ina = INA219(shunt_ohms = 0.1,
-             max_expected_amps = 0.6,
+             max_expected_amps = 2.0,
              address = 0x40,
              busnum=1)
 

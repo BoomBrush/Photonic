@@ -14,6 +14,7 @@ from PIL import Image
 from time import sleep
 from io import BytesIO
 from signal import pthread_kill, SIGTSTP
+from ina219 import INA219, DeviceRangeError
 import gphoto2 as gp
 
 # Stepper motor steps for full rotation
@@ -21,7 +22,7 @@ FULL_ROTATION_STEPS = 3200
 
 # Pins
 CAMERA_SHUTTER_PIN = 4
-CAMERA_POWER_PIN = 27
+CAMERA_POWER_PIN = 22
 FILAMENT_MOSFET_PIN = 12
 FILAMENT_RELAY_PIN = 23
 HV_PRESENT_PIN = 5
@@ -33,17 +34,16 @@ STEPPER_ENABLE_PIN = 16
 
 # Absolute limits
 MAX_FILAMENT_CURRENT = 1.80
-MAX_HV_POWER = 50
+MAX_HV_POWER = 70
 MAX_DURATION = 5000
-FILAMENT_WAIT_TIME = 100
+FILAMENT_WAIT_TIME = 500
 STEPPER_STEPS_PER_ROTATION = 200
 STEPPER_SPEED = 0.001
 CAMERA_TIMEOUT = 10
 
 class GPhoto(threading.Thread):
-    def __init__(self, disable_timeout=False):
+    def __init__(self):
         threading.Thread.__init__(self)
-        self.disable_timeout = disable_timeout
         self.camera = gp.Camera()
         self.camera_detected = False
 
@@ -60,23 +60,23 @@ class GPhoto(threading.Thread):
 
         self.capture_successful = threading.Event()
         self.capture_filepath = None
-        self.timeout = 1000
+        self.timeout = CAMERA_TIMEOUT * 1000
 
     def run(self):
-        print("GPhoto2 thread running and waiting for image...")
+        print("GPhoto2 thread started")
         start_time = time.time()
         self.listening = True
 
         while self.listening:
-            self.capture_successful.clear()
-
             event_type, event_data = self.camera.wait_for_event(self.timeout)
             if event_type == gp.GP_EVENT_FILE_ADDED:
                 cam_file = self.camera.file_get(event_data.folder, event_data.name, gp.GP_FILE_TYPE_NORMAL)
                 target_path = os.path.join("/home/boombrush/XRAY/imgs/raw", event_data.name)
                 cam_file.save(target_path)
                 self.capture_filepath = target_path
+
                 self.capture_successful.set()
+                self.capture_successful.clear()
 
             #if (start_time + CAMERA_TIMEOUT) > time.time():
             #    self.capture_done.set()
@@ -91,17 +91,50 @@ class GPhoto(threading.Thread):
         print("Ending gphoto2 thread")
         self.running = False
 
+class ina219():
+    def __init__(self):
+        self.ina = INA219(shunt_ohms = 0.1,
+                          max_expected_amps = 1.0,
+                          address = 0x40,
+                          busnum=1)
+
+        self.ina.configure(voltage_range=self.ina.RANGE_16V,
+                           gain=self.ina.GAIN_AUTO,
+                           bus_adc=self.ina.ADC_128SAMP,
+                           shunt_adc=self.ina.ADC_128SAMP)
+
+    def current(self):
+        try:
+            if self.ina.power() == 0.0:
+                return 0.0
+
+            return int(self.ina.current())
+        except DeviceRangeError:
+            return self.current()
+
+    def voltage(self):
+        return self.ina.voltage()
+
+    def power(self):
+        try:
+            return int(self.ina.power())
+        except DeviceRangeError:
+            return int(self.power())
+
 
 class Machine():
-    def __init__(self, ignore_camera=False, skip_filament=False, disable_timeout=False):
+    def __init__(self, ignore_camera=False, skip_filament=False, keep_filament_on=False):
         # Class variables
         self.ignore_camera = ignore_camera
         self.skip_filament = skip_filament
-        self.disable_timeout = disable_timeout
+        self.keep_filament_on = keep_filament_on
         self.http_server_process = None
 
         # Kill other Python XRAY processes
         self.kill_other_python_processes()
+
+        # INA219 Init
+        self.ina219 = ina219()
 
         # GPIO Inits
         try:
@@ -116,9 +149,6 @@ class Machine():
         # Start camera thread
         if not self.ignore_camera:
             self.dslr.start()
-
-        # ESP32 init
-        self.esp32_init()
 
         # HV PSU powered check
         if self.gpio_hv_present.value == 1:
@@ -147,7 +177,7 @@ class Machine():
     def initialize_dslr(self):
         if not self.ignore_camera:
             try:
-                self.dslr = GPhoto(disable_timeout=self.disable_timeout)
+                self.dslr = GPhoto()
             except Exception as e:
                 print("Error:", e)
                 print("Attempting to restart camera and try again")
@@ -177,12 +207,6 @@ class Machine():
         self.stepper_direction.off()
         self.stepper_enable.on()
 
-    def esp32_init(self):
-        try:
-            self.esp32_ser = serial.Serial('/dev/ttyS0', 1000000, timeout=1)
-        except Exception as e:
-            print("ESP32 failed to initialize:", e)
-            return False
 
     def stepper_move(self, steps):
         self.stepper_enable.off()
@@ -201,26 +225,34 @@ class Machine():
         if duration > MAX_DURATION: duration = MAX_DURATION
         if filament_current > MAX_FILAMENT_CURRENT: filament_current = MAX_FILAMENT_CURRENT
 
-        # Wait for filament to heat up and for HV to sync with pwm
+        # Set pwm for HV
         self.hv_pwm(power / 100)
+
+        # Wait for filament to heat up
         if not self.skip_filament:
             self.filament(True, filament_current)
             sleep(FILAMENT_WAIT_TIME / 1000)
-
-        print("Filament current:", self.filament_current() / 1000, "amps")
-
+            print("Filament current:", self.ina219.current(), "mA")
         # Turn HV and camera on then wait
         self.hv_enable(True)
+
         if not self.ignore_camera:
             self.camera_shutter(True)
+
         print("Capture started. Waiting", duration, "ms")
+
+        # Wait for set duration
         sleep(duration / 1000)
 
         # Turn camera, HV and filament off
         self.camera_shutter(False)
         self.hv_enable(False)
-        self.filament(False)
         self.hv_pwm(0)
+
+        if not self.keep_filament_on:
+            self.filament(False)
+            sleep(FILAMENT_WAIT_TIME / 1000)
+            print("Filament current:", self.ina219.current(), "mA")
 
         # Return if ignoring camera
         if self.ignore_camera:
@@ -231,16 +263,15 @@ class Machine():
 
         # Get image from camera
         print("Waiting for camera capture event")
-        self.dslr.capture_successful.wait(timeout=5)
-        print("Recieved camera capture")
+        self.dslr.capture_successful.wait()
 
-        #if not self.dslr.capture_successful.is_set():
-        #    return None
+        if self.dslr.capture_filepath:
+            print("Recieved camera capture")
+            return Image.open(self.dslr.capture_filepath)
 
-        #self.dslr.capture_successful.clear()
+        print("Did not receive capture after timeout period. Retrying...")
 
-        img = Image.open(self.dslr.capture_filepath)
-        return img
+        return self.capture(power, duration, filament_current)
 
     def filament(self, state, value=None):
         if state:
@@ -289,17 +320,20 @@ class Machine():
         #return None
 
     def restart_camera(self):
+        print("Restarting camera")
         self.gpio_camera_power.off()
-        sleep(0.5)
+        sleep(1)
         self.gpio_camera_power.on()
-        sleep(5)
+        sleep(2)
 
     def http_server(self, port=8000, keepalive=False):
         self.http_server_process = HTTP_Server(port, keepalive)
         self.http_server_process.start()
 
     def finished(self):
-        self.dslr.listening = False
+        if not self.ignore_camera:
+            self.dslr.listening = False
+
         self.filament(False)
         self.hv_enable(False)
         self.hv_pwm(0)

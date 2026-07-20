@@ -1,20 +1,18 @@
 from time import sleep
 import Photonic
 
-POWER = 40
+POWER = 30
 DURATION = 1000
 NUMBER_OF_SCANS = 5
 
-XRAY = Photonic.Machine(skip_filament=True)
-
-XRAY.filament(True)
+XRAY = Photonic.Machine()
 
 for i in range(NUMBER_OF_SCANS):
     print("Scan", i + 1)
     img = XRAY.capture(POWER, DURATION)
     img.save("/home/boombrush/XRAY/imgs/" + str(i) + ".jpg")
 
-    XRAY.stepper_move(int(200 / NUMBER_OF_SCANS) * (i+1))
+    #XRAY.stepper_move(int(200 / NUMBER_OF_SCANS) * (i+1))
 
 XRAY.finished()
 
