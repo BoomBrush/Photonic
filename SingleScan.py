@@ -2,12 +2,12 @@ from time import sleep
 import Photonic
 import numpy, cv2
 
-XRAY = Photonic.Machine()
+XRAY = Photonic.Photonic()
 
 if XRAY.system_check():
     print("System check passed. Proceeding...")
 
-    img = XRAY.capture(100, 2000, 1.8) # Power (%), Time (ms), FilamentCurrent (Amps)
+    img = XRAY.capture(75, 3000, 1.8) # Power (%), Time (ms), FilamentCurrent (Amps)
 
     if img:
         image = numpy.array(img)
@@ -17,5 +17,7 @@ if XRAY.system_check():
         print("Image saved")
     else:
         print("Image failed")
+else:
+    print("System check failed")
 
 XRAY.finished()

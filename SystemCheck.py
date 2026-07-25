@@ -1,7 +1,7 @@
 from time import sleep
 import Photonic
 
-XRAY = Photonic.Machine()
+XRAY = Photonic.Photonic()
 
 if XRAY.system_check():
     print("System check passed!")

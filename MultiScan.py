@@ -5,13 +5,17 @@ POWER = 30
 DURATION = 1000
 NUMBER_OF_SCANS = 5
 
-XRAY = Photonic.Machine()
+XRAY = Photonic.Photonic()
 
-#if XRAY.system_check():
-for i in range(NUMBER_OF_SCANS):
-    print("Scan", i + 1)
-    img = XRAY.capture(POWER, DURATION)
-    img.save("/home/boombrush/XRAY/imgs/" + str(i) + ".jpg")
+if XRAY.system_check():
+    print("System check good")
+
+    for i in range(NUMBER_OF_SCANS):
+        print("Scan", i + 1)
+        img = XRAY.capture(POWER, DURATION)
+        img.save("imgs/" + str(i) + ".jpg")
+else:
+    print("System check failed")
 
     #XRAY.stepper_move(int(200 / NUMBER_OF_SCANS) * (i+1))
 

@@ -2,9 +2,9 @@ from time import sleep
 import Photonic
 import numpy, cv2
 
-XRAY = Photonic.Machine()
+XRAY = Photonic.Photonic()
 
-img = XRAY.capture(80, 2000, 1.8) # Power (%), Time (ms), FilamentCurrent (Amps)
+img = XRAY.capture(100, 3000, 1.8) # Power (%), Time (ms), FilamentCurrent (Amps)
 
 if img:
     image = numpy.array(img)

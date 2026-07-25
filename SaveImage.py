@@ -1,7 +1,7 @@
 from time import sleep
 import Photonic, sys
 
-XRAY = Photonic.Machine()
+XRAY = Photonic.Photonic()
 XRAY.system_check()
 
 filename = sys.argv[1]

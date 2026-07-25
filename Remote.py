@@ -1,8 +1,9 @@
 from time import sleep
 import Photonic, sys
+import numpy, cv2
 
-XRAY = Photonic.Machine()
-XRAY.system_check()
+XRAY = Photonic.Photonic()
+#XRAY.system_check()
 
 power = int(sys.argv[1])
 duration = int(sys.argv[2])
@@ -10,7 +11,10 @@ duration = int(sys.argv[2])
 img = XRAY.capture(power, duration) # Power (%), Time (ms), FilamentCurrent (Amps)
 
 if img:
-    img.save("/home/boombrush/XRAY/imgs/remote.jpg")
+    image = numpy.array(img)
+    greyscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    cv2.imwrite("imgs/remote.jpg", greyscale)
+
     print("Done")
 else:
     print("Image failed to be captured")
