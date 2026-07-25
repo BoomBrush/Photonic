@@ -1,15 +1,15 @@
 import time
 import gpiozero
 
-step_pin = gpiozero.OutputDevice(21)
-direction_pin = gpiozero.OutputDevice(20)
+step_pin = gpiozero.OutputDevice(20)
+direction_pin = gpiozero.OutputDevice(21)
 enable_pin = gpiozero.OutputDevice(16)
 
 step_pin.off()
 direction_pin.off()
 
 steps_per_rotation = 200
-steps = 20
+steps = 200
 speed = 0.001 # Lower is faster
 
 def stepper(steps):

@@ -18,7 +18,7 @@ import gphoto2 as gp
 FULL_ROTATION_STEPS = 3200
 
 # Pins
-CAMERA_SHUTTER_PIN = 17
+CAMERA_SHUTTER_PIN = 25
 CAMERA_POWER_PIN = 22
 
 FILAMENT_MOSFET_PIN = 12
@@ -28,9 +28,11 @@ HV_PRESENT_PIN = 5
 HV_ACTIVE_PIN = 27
 HV_PWM_PIN = 19
 
-STEPPER_STEP_PIN = 21
-STEPPER_DIRECTION_PIN = 20
+STEPPER_STEP_PIN = 20
+STEPPER_DIRECTION_PIN = 21
 STEPPER_ENABLE_PIN = 16
+
+SWITCH_NETWORKS_PIN = 18
 
 # Absolute limits / definitions
 MAX_FILAMENT_CURRENT = 1.80
@@ -49,6 +51,8 @@ MAX_CAPTURE_ATTEMPTS = 3
 
 HV_R1_RESISTANCE = 21_800
 HV_R2_RESISTANCE = 70_750_000
+
+KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py"]
 
 
 class GPhoto2(threading.Thread):
@@ -79,12 +83,12 @@ class GPhoto2(threading.Thread):
             event_type, event_data = self.camera.wait_for_event(self.timeout)
             if event_type == gp.GP_EVENT_FILE_ADDED:
                 cam_file = self.camera.file_get(event_data.folder, event_data.name, gp.GP_FILE_TYPE_NORMAL)
-                target_path = os.path.join("/home/boombrush/XRAY/imgs/raw", event_data.name)
+                target_path = os.path.join("imgs/raw", event_data.name)
                 cam_file.save(target_path)
                 self.capture_filepath = target_path
 
-                self.capture_successful.set()
                 print("Capture successful event set")
+                self.capture_successful.set()
                 self.capture_successful.clear()
 
         print("GPhoto2 thread stopping")
@@ -178,9 +182,12 @@ class Machine():
             if p.name() == "python":
                 cmd_line = p.cmdline()
 
-                if 'http_server' not in cmd_line[1]:
-                    print("Killing script:", ' '.join(cmd_line))
-                    p.kill()
+                if len(cmd_line) > 1:
+                    filename = cmd_line[1].split("/")[-1]
+
+                    if filename not in KILL_PROCESS_EXCEPTIONS:
+                        print("Killing script:", ' '.join(cmd_line))
+                        p.kill()
 
     def initialize_dslr(self):
         try:
@@ -242,7 +249,7 @@ class Machine():
 
         self.hv(False)
 
-        high_voltage = self.hv_convert(self.hv_psu.voltage())
+        high_voltage = self.calculate_hv(self.hv_psu.voltage())
 
         print(f"high_voltage={high_voltage}")
 
@@ -251,8 +258,9 @@ class Machine():
             print(f"Checking camera attempt {attempt}/{MAX_CAPTURE_ATTEMPTS}")
 
             self.camera_shutter(True)
-            sleep(0.1)
+            sleep(0.25)
             self.camera_shutter(False)
+
             if not self.ignore_camera:
                 self.dslr.capture_successful.wait(timeout=CAMERA_TIMEOUT)
 
@@ -283,13 +291,17 @@ class Machine():
         if duration > MAX_DURATION: duration = MAX_DURATION
         if filament_current > MAX_FILAMENT_CURRENT: filament_current = MAX_FILAMENT_CURRENT
 
-        print(f"Capture started at {power}%, waiting {duration}ms, filament current {filament_current}A")
+        print(f"Capture started at {power}% waiting {duration}ms")
+
+        hv_lowside = self.hv_psu.voltage()
+        hv_highside = self.calculate_hv(hv_lowside)
+        print(f"Before HV Lowside: {hv_lowside}, HV Highside: {hv_highside}")
 
         # Wait for filament to heat up
         if not self.skip_filament:
             self.filament(True, filament_current)
             sleep(FILAMENT_WAIT_TIME / 1000)
-            print("Filament:", self.filament_psu.current(), "mA", self.filament_psu.voltage(), "V", self.filament_psu.power() / 1000, "W")
+            print(f"Filament {self.filament_psu.current()}mA, {self.filament_psu.voltage()}V, {self.filament_psu.power()}mW")
 
         # Turn HV and camera on then wait
         self.hv(True, power / 100)
@@ -297,12 +309,12 @@ class Machine():
         if not self.ignore_camera:
             self.camera_shutter(True)
 
-        hv_lowside = self.hv_psu.voltage()
-        hv_highside = self.hv_convert(hv_lowside)
-        print(f"HV Lowside: {hv_lowside}, HV Highside: {hv_highside}")
-
         # Wait for set duration
         sleep(duration / 1000)
+
+        hv_lowside = self.hv_psu.voltage()
+        hv_highside = self.calculate_hv(hv_lowside)
+        print(f"After HV Lowside: {hv_lowside}, HV Highside: {hv_highside}")
 
         # Turn camera, HV and filament off
         self.camera_shutter(False)
@@ -357,8 +369,9 @@ class Machine():
             print("PWM out of range")
             self.gpio_hv_pwm.value = 0
 
-    def hv_convert(self, value):
-        return value / (HV_R2_RESISTANCE / (HV_R1_RESISTANCE + HV_R2_RESISTANCE))
+    def calculate_hv(self, vout):
+        return vout + 50
+#        return vout / (HV_R2_RESISTANCE / (HV_R1_RESISTANCE + HV_R2_RESISTANCE))
 
     def restart_camera(self):
         print("Restarting camera")

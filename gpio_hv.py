@@ -10,7 +10,7 @@ from time import sleep
 from ina219 import INA219
 
 hv_pwm_pin = 19			# PWM pin connected to LED
-hv_active_pin = 17
+hv_active_pin = 27
 hv_power_pin = 5
 
 hv_pwm = gpiozero.PWMOutputDevice(hv_pwm_pin)
@@ -41,7 +41,7 @@ else:
     print("WARNING: HV PSU NOT DETECTED")
 
 while True:
-    hv_pwm.value = 1.0
+    hv_pwm.value = 0.75
     print(f"Pin {hv_pwm_pin} set to {hv_pwm.value}")
 
     hv_active.on()
