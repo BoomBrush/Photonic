@@ -16,13 +16,21 @@ filament_relay = gpiozero.OutputDevice(filament_relay_pin)
 desired_filament_current = 1.00 # Amps
 max_filament_current = 1.80
 
+
+def filament_on():
+    filament_mosfet.value = 1.0
+    filament_relay.on()
+
+def filament_off():
+    filament_mosfet.value = 0.0
+    filament_relay.off()
+
+
 while True:
     print("Filament ON")
-    filament_mosfet.value = desired_filament_current / max_filament_current
-    filament_relay.on()
+    filament_on()
     sleep(5)
 
     print("Filament OFF")
-    filament_mosfet.value = 0.0
-    filament_relay.off()
+    filament_off()
     sleep(1)

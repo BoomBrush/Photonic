@@ -4,13 +4,12 @@ from time import sleep
 XRAY = Photonic.Machine(ignore_camera=True)
 
 while True:
-    print("Camera off")
-    XRAY.gpio_camera_power.off()
+    print("Shutter on")
+    XRAY.camera_shutter(True)
+    sleep(2)
 
-    sleep(1)
-
-    print("Camera on")
-    XRAY.gpio_camera_power.on()
-    sleep(1)
+    print("Shutter off")
+    XRAY.camera_shutter(False)
+    sleep(2)
 
 

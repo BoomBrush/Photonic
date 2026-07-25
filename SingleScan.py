@@ -1,14 +1,21 @@
 from time import sleep
 import Photonic
+import numpy, cv2
 
 XRAY = Photonic.Machine()
 
-img = XRAY.capture(40, 2000, 0.00) # Power (%), Time (ms), FilamentCurrent (Amps)
+if XRAY.system_check():
+    print("System check passed. Proceeding...")
 
-if img:
-    img.save(f"imgs/test image 40 2000 0.00Amps.jpg")
-    print("Image saved")
-else:
-    print("Image failed")
+    img = XRAY.capture(100, 2000, 1.8) # Power (%), Time (ms), FilamentCurrent (Amps)
+
+    if img:
+        image = numpy.array(img)
+        greyscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        cv2.imwrite("imgs/test image.jpg", greyscale)
+
+        print("Image saved")
+    else:
+        print("Image failed")
 
 XRAY.finished()

@@ -10,7 +10,7 @@ direction_pin.off()
 
 steps_per_rotation = 200
 steps = 20
-speed = 0.01 # Lower is faster
+speed = 0.001 # Lower is faster
 
 def stepper(steps):
     direction_pin.on()
@@ -20,11 +20,11 @@ def stepper(steps):
         step_pin.off()
         time.sleep(speed)
 
-enable_pin.off()
+#enable_pin.off()
 
 #for i in range(steps):
 #    print("Turning", i)
 #    turn = int(steps_per_rotation / steps)
 stepper(200)
 
-enable_pin.on()
+#enable_pin.on()

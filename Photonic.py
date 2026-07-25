@@ -1,9 +1,6 @@
 import threading, subprocess, signal, ctypes
-import http.server, socketserver
 import socket, requests
 import serial
-import tinytuya
-import atexit
 import os
 import time
 import psutil
@@ -21,27 +18,40 @@ import gphoto2 as gp
 FULL_ROTATION_STEPS = 3200
 
 # Pins
-CAMERA_SHUTTER_PIN = 4
+CAMERA_SHUTTER_PIN = 17
 CAMERA_POWER_PIN = 22
+
 FILAMENT_MOSFET_PIN = 12
 FILAMENT_RELAY_PIN = 23
+
 HV_PRESENT_PIN = 5
-HV_ACTIVE_PIN = 17
+HV_ACTIVE_PIN = 27
 HV_PWM_PIN = 19
+
 STEPPER_STEP_PIN = 21
 STEPPER_DIRECTION_PIN = 20
 STEPPER_ENABLE_PIN = 16
 
-# Absolute limits
+# Absolute limits / definitions
 MAX_FILAMENT_CURRENT = 1.80
-MAX_HV_POWER = 70
-MAX_DURATION = 5000
+MAX_HV_POWER = 100
+MAX_DURATION = 10000
+
 FILAMENT_WAIT_TIME = 500
+FILAMENT_VOLTAGE_THRESHOLD = 3.80
+FILAMENT_POWER_THRESHOLD = 1.00
+
 STEPPER_STEPS_PER_ROTATION = 200
 STEPPER_SPEED = 0.001
-CAMERA_TIMEOUT = 10
 
-class GPhoto(threading.Thread):
+CAMERA_TIMEOUT = 10
+MAX_CAPTURE_ATTEMPTS = 3
+
+HV_R1_RESISTANCE = 21_800
+HV_R2_RESISTANCE = 70_750_000
+
+
+class GPhoto2(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self.camera = gp.Camera()
@@ -54,7 +64,6 @@ class GPhoto(threading.Thread):
             print(camera_list[0][0], "initialized")
 
             self.camera_detected = True
-            self.running = True
         else:
             raise Exception("WARNING: No DSLR camera detected")
 
@@ -64,7 +73,6 @@ class GPhoto(threading.Thread):
 
     def run(self):
         print("GPhoto2 thread started")
-        start_time = time.time()
         self.listening = True
 
         while self.listening:
@@ -76,34 +84,29 @@ class GPhoto(threading.Thread):
                 self.capture_filepath = target_path
 
                 self.capture_successful.set()
+                print("Capture successful event set")
                 self.capture_successful.clear()
 
-            #if (start_time + CAMERA_TIMEOUT) > time.time():
-            #    self.capture_done.set()
+        print("GPhoto2 thread stopping")
 
+class power_monitor():
+    def __init__(self, address, disabled=False):
+        self.disabled = disabled
 
-        # Release main thread upon timing out and no picture is taken
-#        if not self.capture_done.is_set():
-#            print("Gphoto2 thread timed out")
-#            self.capture_done.set()
+        if not disabled:
+            self.ina = INA219(shunt_ohms = 0.1,
+                              max_expected_amps = 3.0,
+                              address = address,
+                              busnum=1)
 
-    def kill(self):
-        print("Ending gphoto2 thread")
-        self.running = False
-
-class ina219():
-    def __init__(self):
-        self.ina = INA219(shunt_ohms = 0.1,
-                          max_expected_amps = 1.0,
-                          address = 0x40,
-                          busnum=1)
-
-        self.ina.configure(voltage_range=self.ina.RANGE_16V,
-                           gain=self.ina.GAIN_AUTO,
-                           bus_adc=self.ina.ADC_128SAMP,
-                           shunt_adc=self.ina.ADC_128SAMP)
+            self.ina.configure(voltage_range=self.ina.RANGE_16V,
+                               gain=self.ina.GAIN_AUTO,
+                               bus_adc=self.ina.ADC_128SAMP,
+                               shunt_adc=self.ina.ADC_128SAMP)
 
     def current(self):
+        if self.disabled: return 0.0
+
         try:
             if self.ina.power() == 0.0:
                 return 0.0
@@ -113,9 +116,13 @@ class ina219():
             return self.current()
 
     def voltage(self):
+        if self.disabled: return 0.0
+
         return self.ina.voltage()
 
     def power(self):
+        if self.disabled: return 0.0
+
         try:
             return int(self.ina.power())
         except DeviceRangeError:
@@ -128,33 +135,34 @@ class Machine():
         self.ignore_camera = ignore_camera
         self.skip_filament = skip_filament
         self.keep_filament_on = keep_filament_on
-        self.http_server_process = None
 
         # Kill other Python XRAY processes
         self.kill_other_python_processes()
 
         # INA219 Init
-        self.ina219 = ina219()
+        try:
+            self.filament_psu = power_monitor(0x40)
+            self.hv_psu = power_monitor(0x41)
+        except OSError:
+            print("WARNING: INA219 ERROR")
+            self.filament_psu = power_monitor(0x40, disabled=True)
+            self.hv_psu = power_monitor(0x41, disabled=True)
 
         # GPIO Inits
-        try:
-            self.initialize_gpio()
-        except Exception as e:
-            print("Error:", e)
-            exit()
+        self.initialize_gpio()
 
-        # DSLR Init
-        self.initialize_dslr()
-
-        # Start camera thread
+        # Start camera thread and init DSLR
         if not self.ignore_camera:
+            self.initialize_dslr()
             self.dslr.start()
 
         # HV PSU powered check
-        if self.gpio_hv_present.value == 1:
-            print("HV PSU Detected")
-        else:
+        if self.gpio_hv_present.value != 1:
             print("WARNING: HV PSU NOT DETECTED")
+
+        # Filament power check
+        if self.filament_psu.voltage() < FILAMENT_VOLTAGE_THRESHOLD:
+            print("WARNING: NO POWER TO FILAMENT")
 
     def kill_other_python_processes(self):
         current_pid = os.getpid()
@@ -171,24 +179,23 @@ class Machine():
                 cmd_line = p.cmdline()
 
                 if 'http_server' not in cmd_line[1]:
-                    print("Killing XRAY script:", cmd_line)
+                    print("Killing script:", ' '.join(cmd_line))
                     p.kill()
 
     def initialize_dslr(self):
-        if not self.ignore_camera:
-            try:
-                self.dslr = GPhoto()
-            except Exception as e:
-                print("Error:", e)
-                print("Attempting to restart camera and try again")
-                self.restart_camera()
-                self.initialize_dslr()
+        try:
+            self.dslr = GPhoto2()
+        except Exception as e:
+            print("Error:", e)
+            print("Attempting to restart camera and try again")
+            self.restart_camera()
+            self.initialize_dslr()
 
     def initialize_gpio(self):
         self.gpio_hv_present = gpiozero.InputDevice(HV_PRESENT_PIN)
         self.gpio_hv_enable = gpiozero.OutputDevice(HV_ACTIVE_PIN)
         self.gpio_hv_pwm = gpiozero.PWMOutputDevice(HV_PWM_PIN)
-        self.gpio_filament_mosfet = gpiozero.OutputDevice(FILAMENT_MOSFET_PIN)
+        self.gpio_filament_mosfet = gpiozero.PWMOutputDevice(FILAMENT_MOSFET_PIN)
         self.gpio_filament_relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
         self.gpio_camera_shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         self.gpio_camera_power = gpiozero.OutputDevice(CAMERA_POWER_PIN)
@@ -200,13 +207,64 @@ class Machine():
         self.camera_shutter(False)
         self.gpio_camera_power.on()
         self.filament(False)
-        self.hv_enable(False)
-        self.hv_pwm(0)
+        self.hv(False)
 
         self.stepper_step.off()
         self.stepper_direction.off()
         self.stepper_enable.on()
 
+    def system_check(self):
+        # Filament
+        print("Checking filament")
+        if self.filament_psu.voltage() < FILAMENT_VOLTAGE_THRESHOLD:
+            print("FAIL: Filament voltage not present")
+            return False
+
+        self.filament(True)
+        sleep(0.5)
+        if self.filament_psu.power() < FILAMENT_POWER_THRESHOLD:
+            print("FAIL: Filament no load")
+            self.filament(False)
+            return False
+
+        self.filament(False)
+
+        # HV
+        print("Checking HV")
+        if self.gpio_hv_present.value != 1:
+            print("FAIL: HV PSU Not detected")
+            return False
+
+        self.hv(True, 0.5)
+        sleep(0.25)
+
+        vout = self.hv_psu.voltage()
+
+        self.hv(False)
+
+        high_voltage = self.hv_convert(self.hv_psu.voltage())
+
+        print(f"high_voltage={high_voltage}")
+
+        # Camera
+        for attempt in range(1, MAX_CAPTURE_ATTEMPTS + 1):
+            print(f"Checking camera attempt {attempt}/{MAX_CAPTURE_ATTEMPTS}")
+
+            self.camera_shutter(True)
+            sleep(0.1)
+            self.camera_shutter(False)
+            if not self.ignore_camera:
+                self.dslr.capture_successful.wait(timeout=CAMERA_TIMEOUT)
+
+                if self.dslr.capture_filepath:
+                    break
+                else:
+                    print("FAIL: DSLR Capture")
+
+            if attempt == MAX_CAPTURE_ATTEMPTS:
+                return False
+
+        return True
 
     def stepper_move(self, steps):
         self.stepper_enable.off()
@@ -225,34 +283,34 @@ class Machine():
         if duration > MAX_DURATION: duration = MAX_DURATION
         if filament_current > MAX_FILAMENT_CURRENT: filament_current = MAX_FILAMENT_CURRENT
 
-        # Set pwm for HV
-        self.hv_pwm(power / 100)
+        print(f"Capture started at {power}%, waiting {duration}ms, filament current {filament_current}A")
 
         # Wait for filament to heat up
         if not self.skip_filament:
             self.filament(True, filament_current)
             sleep(FILAMENT_WAIT_TIME / 1000)
-            print("Filament current:", self.ina219.current(), "mA")
+            print("Filament:", self.filament_psu.current(), "mA", self.filament_psu.voltage(), "V", self.filament_psu.power() / 1000, "W")
+
         # Turn HV and camera on then wait
-        self.hv_enable(True)
+        self.hv(True, power / 100)
 
         if not self.ignore_camera:
             self.camera_shutter(True)
 
-        print("Capture started. Waiting", duration, "ms")
+        hv_lowside = self.hv_psu.voltage()
+        hv_highside = self.hv_convert(hv_lowside)
+        print(f"HV Lowside: {hv_lowside}, HV Highside: {hv_highside}")
 
         # Wait for set duration
         sleep(duration / 1000)
 
         # Turn camera, HV and filament off
         self.camera_shutter(False)
-        self.hv_enable(False)
-        self.hv_pwm(0)
+        self.hv(False)
 
         if not self.keep_filament_on:
             self.filament(False)
             sleep(FILAMENT_WAIT_TIME / 1000)
-            print("Filament current:", self.ina219.current(), "mA")
 
         # Return if ignoring camera
         if self.ignore_camera:
@@ -263,106 +321,59 @@ class Machine():
 
         # Get image from camera
         print("Waiting for camera capture event")
-        self.dslr.capture_successful.wait()
+        self.dslr.capture_successful.wait(timeout=CAMERA_TIMEOUT)
 
         if self.dslr.capture_filepath:
-            print("Recieved camera capture")
+            print("Recieved image from camera")
             return Image.open(self.dslr.capture_filepath)
 
         print("Did not receive capture after timeout period. Retrying...")
 
         return self.capture(power, duration, filament_current)
 
-    def filament(self, state, value=None):
+    def filament(self, state, value=MAX_FILAMENT_CURRENT):
         if state:
+            self.gpio_filament_mosfet.value = float(value) / MAX_FILAMENT_CURRENT
             self.gpio_filament_relay.on()
-
-            if value:
-                self.gpio_filament_mosfet.value = float(value) / MAX_FILAMENT_CURRENT
-            else:
-                self.gpio_filament_mosfet.value = 1.0
         else:
             self.gpio_filament_mosfet.value = 0.0
-            self.gpio_filament_mosfet.off()
             self.gpio_filament_relay.off()
 
     def camera_shutter(self, state):
-        self.gpio_camera_shutter.off() if state else self.gpio_camera_shutter.on()
+        if state:
+            self.gpio_camera_shutter.off()
+        else:
+            self.gpio_camera_shutter.on()
 
-    def hv_enable(self, state):
-        self.gpio_hv_enable.on() if state else self.gpio_hv_enable.off()
-
-    def hv_pwm(self, pwm):
+    def hv(self, state, pwm=0):
         if pwm >= 0 and pwm <= 1:
             self.gpio_hv_pwm.value = pwm
+
+            if state:
+                self.gpio_hv_enable.on()
+            else:
+                self.gpio_hv_enable.off()
         else:
             print("PWM out of range")
             self.gpio_hv_pwm.value = 0
 
-    def filament_current(self):
-        output = ""
-        self.esp32_ser.write('?'.encode())
-        try:
-            while True:
-                line = self.esp32_ser.readline().decode('utf-8').rstrip()
-                print(line)
-                if line == "":
-                    break
-
-            #current = float(line) * 0.00795412 - 15.24036691;
-            #current = float(line)
-            return 0.0
-
-        except ValueError:
-            print("SP32 Did not respond to filament current request")
-            current = 0.0
-
-        #return None
+    def hv_convert(self, value):
+        return value / (HV_R2_RESISTANCE / (HV_R1_RESISTANCE + HV_R2_RESISTANCE))
 
     def restart_camera(self):
         print("Restarting camera")
         self.gpio_camera_power.off()
-        sleep(1)
+        sleep(0.5)
         self.gpio_camera_power.on()
         sleep(2)
-
-    def http_server(self, port=8000, keepalive=False):
-        self.http_server_process = HTTP_Server(port, keepalive)
-        self.http_server_process.start()
 
     def finished(self):
         if not self.ignore_camera:
             self.dslr.listening = False
 
         self.filament(False)
-        self.hv_enable(False)
-        self.hv_pwm(0)
+        self.hv(False)
 
         if not self.ignore_camera:
             self.camera_shutter(False)
-            self.dslr.kill()
-
-        print("Exiting")
-
-    def listen(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(10)
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((HOST, PORT))
-            print("Listening for camera image...")
-            s.listen()
-            try:
-                conn, addr = s.accept()
-            except TimeoutError:
-                print("Timeout error")
-                return None
-            with conn:
-                print(f"Connected by {addr}")
-
-                while True:
-                    data = conn.recv(1024)
-                    if not data:
-                        break
-                    break
-        s.close()
-        return data
+            self.dslr.listening = False

@@ -4,14 +4,14 @@ import Photonic, sys
 XRAY = Photonic.Machine()
 XRAY.system_check()
 
-power = int(sys.argv[1])
-duration = int(sys.argv[2])
+filename = sys.argv[1]
+power = int(sys.argv[2])
+duration = int(sys.argv[3])
 
 img = XRAY.capture(power, duration) # Power (%), Time (ms), FilamentCurrent (Amps)
 
 if img:
-    img.save("/home/boombrush/XRAY/imgs/remote.jpg")
-    print("Done")
+    img.save(f"imgs/{filename}.jpg")
 else:
     print("Image failed to be captured")
 

@@ -7,6 +7,7 @@ NUMBER_OF_SCANS = 5
 
 XRAY = Photonic.Machine()
 
+#if XRAY.system_check():
 for i in range(NUMBER_OF_SCANS):
     print("Scan", i + 1)
     img = XRAY.capture(POWER, DURATION)
