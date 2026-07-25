@@ -147,9 +147,6 @@ class Photonic():
         # GPIO Inits
         self.initialize_gpio()
 
-        # Set LED to yellow
-        self.set_led(1, 1, 0)
-
         # Kill other Python XRAY processes
         self.kill_other_python_processes()
 
@@ -173,9 +170,6 @@ class Photonic():
         # Filament power check
         if self.filament_psu.voltage() < FILAMENT_VOLTAGE_THRESHOLD:
             print("WARNING: NO POWER TO FILAMENT")
-
-        # Set LED to green
-        #self.set_led(0, 1, 0)
 
     def kill_other_python_processes(self):
         current_pid = os.getpid()
@@ -390,7 +384,7 @@ class Photonic():
             self.led.set(r, g, b, turn_off_period)
             self.led.disconnect()
         except ConnectionRefusedError:
-            print("LED error")
+            print("WARNING: LED connection refused")
 
     def hv(self, state, pwm=0):
         if pwm >= 0 and pwm <= 1:
