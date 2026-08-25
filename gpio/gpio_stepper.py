@@ -1,9 +1,9 @@
 import time
 import gpiozero
 
-step_pin = gpiozero.OutputDevice(20)
-direction_pin = gpiozero.OutputDevice(21)
-enable_pin = gpiozero.OutputDevice(16)
+step_pin = gpiozero.OutputDevice(17)
+direction_pin = gpiozero.OutputDevice(6)
+enable_pin = gpiozero.OutputDevice(26)
 
 step_pin.off()
 direction_pin.off()
@@ -25,6 +25,9 @@ def stepper(steps):
 #for i in range(steps):
 #    print("Turning", i)
 #    turn = int(steps_per_rotation / steps)
-stepper(200)
+
+while True:
+    stepper(200)
+    time.sleep(2)
 
 #enable_pin.on()

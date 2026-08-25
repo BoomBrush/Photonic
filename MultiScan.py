@@ -1,49 +1,16 @@
 from time import sleep
 import Photonic
+import SystemCheck
 
-POWER = 30
-DURATION = 1000
+POWER = 80
+DURATION = 2000
 NUMBER_OF_SCANS = 5
 
 XRAY = Photonic.Photonic()
 
-if XRAY.system_check():
-    print("System check good")
-
-    for i in range(NUMBER_OF_SCANS):
-        print("Scan", i + 1)
-        img = XRAY.capture(POWER, DURATION)
-        img.save("imgs/" + str(i) + ".jpg")
-else:
-    print("System check failed")
-
-    #XRAY.stepper_move(int(200 / NUMBER_OF_SCANS) * (i+1))
+for i in range(NUMBER_OF_SCANS):
+    print("Scan", i + 1)
+    img = XRAY.capture(POWER, DURATION)
+    img.save("imgs/" + str(i) + ".jpg")
 
 XRAY.finished()
-
-
-#XRAY.startpos = 0
-#XRAY.rotations = 5
-#XRAY.scans = range(XRAY.startpos, XRAY.rotations + 1)
-
-
-#for i in XRAY.scans:
-#    repeat = True
-#    while repeat:
-#        print(f"Image {i} processing")
-#        XRAY.stepper_move(i - XRAY.startpos)
-
-#        try:
-#            img = XRAY.capture(POWER, DURATION)
-#        except Exception as e:
-#            print("Xray exception - " + str(e))
-#            img = False
-#
-#        if img:
-#            img.save(f"imgs/test image {i}.jpg")
-#            repeat = False
-#        else:
-#            print(f"Image {i} failed")
-
-#        print("Waiting")
-#        sleep(60)

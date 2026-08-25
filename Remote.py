@@ -1,24 +1,31 @@
 from time import sleep
+from PIL import ImageDraw, ImageFont
 import Photonic, sys
 import numpy, cv2
+import SystemCheck
 
 XRAY = Photonic.Photonic()
-#XRAY.system_check()
 
-power = int(sys.argv[1])
-duration = int(sys.argv[2])
+sleep(10)
 
-img = XRAY.capture(power, duration) # Power (%), Time (ms), FilamentCurrent (Amps)
+if SystemCheck.system_check(XRAY):
 
-if img:
-    #image = numpy.array(img)
-    #greyscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    #cv2.imwrite("imgs/remote.jpg", greyscale)
+    power = int(sys.argv[1])
+    duration = int(sys.argv[2])
 
-    img.save("imgs/remote.jpg")
+    if len(sys.argv) == 4:
+        filename = sys.argv[3]
+    else:
+        filename = "remote"
 
-    print("Done")
+    img = XRAY.capture(power, duration) # Power (%), Time (ms)
+
+    if img:
+        img.save(f"imgs/{filename}.jpg")
+        print("Done")
+    else:
+        print("Image failed to be captured")
 else:
-    print("Image failed to be captured")
+    print("System check failed")
 
 XRAY.finished()

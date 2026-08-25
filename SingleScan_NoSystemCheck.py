@@ -4,12 +4,11 @@ import numpy, cv2
 
 XRAY = Photonic.Photonic()
 
-img = XRAY.capture(100, 3000, 1.8) # Power (%), Time (ms), FilamentCurrent (Amps)
+img = XRAY.capture(50, 1000) # Power (%), Time (ms), FilamentCurrent (Amps)
+print(img, type(img))
 
 if img:
-    image = numpy.array(img)
-    greyscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    cv2.imwrite("imgs/test image.jpg", greyscale)
+    img.save("imgs/SingleScan.jpg")
 
     print("Image saved")
 else:
