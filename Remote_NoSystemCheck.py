@@ -6,10 +6,6 @@ from SystemCheck import system_check
 
 XRAY = Photonic.Photonic(raise_exceptions=False)
 
-sleep(10)
-
-system_check(XRAY)
-
 power = int(sys.argv[1])
 duration = int(sys.argv[2])
 

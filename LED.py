@@ -6,22 +6,22 @@ from time import sleep
 # Definitions
 LED_RED_PIN = 20
 LED_GREEN_PIN = 21
-LED_BLUE_PIN = 16
+LED_BLUE_PIN = 27 # 16
+
 
 class LED(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
-        self.blink_event = threading.Event()
 
     def run(self):
         self.led_r = gpiozero.OutputDevice(LED_RED_PIN)
         self.led_g = gpiozero.OutputDevice(LED_GREEN_PIN)
         self.led_b = gpiozero.OutputDevice(LED_BLUE_PIN)
 
-        address = ('localhost', 6000)     # family is deduced to be 'AF_INET'
+        address = ('localhost', 5000)     # family is deduced to be 'AF_INET'
 
         while True:
-            listener = Listener(address)
+            listener = Listener(address, authkey=b'boom')
             conn = listener.accept()
             print('connection accepted from', listener.last_accepted)
 
@@ -46,13 +46,9 @@ class LED(threading.Thread):
         else:
             self.conn_client.send([r, g, b])
 
-    def blink(self, r, g, b):
-        self.blink_event.set()
-        self.set(r, g, b)
-
     def connect(self):
-        address = ('localhost', 6000)
-        self.conn_client = Client(address)
+        address = ('localhost', 5000)
+        self.conn_client = Client(address, authkey=b'boom')
 
     def disconnect(self):
         self.conn_client.send('close')
@@ -77,9 +73,5 @@ class LED(threading.Thread):
 
 if __name__ == "__main__":
     led = LED()
-
+    led.start()
     led.connect()
-    led.set(0, 0, 0)
-    led.disconnect()
-
-

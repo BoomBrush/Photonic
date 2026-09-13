@@ -1,8 +1,9 @@
 from time import sleep
-import gpiozero
+import gpiozero, sys
+sys.path.append("/home/boombrush/Photonic")
 import Photonic
 
-XRAY = Photonic.Photonic(skip_initializations = True)
+XRAY = Photonic.Photonic(raise_exceptions=False)
 
 while True:
     XRAY.led(1, 0, 0)

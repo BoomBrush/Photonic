@@ -1,7 +1,9 @@
+import sys
+sys.path.append("/home/boombrush/Photonic")
 import Photonic
 from time import sleep
 
-XRAY = Photonic.Machine(ignore_camera=True)
+XRAY = Photonic.Photonic(raise_exceptions=False)
 
 
 while True:

@@ -1,15 +1,12 @@
 from time import sleep
-from PIL import ImageDraw
-import numpy, cv2
 import Photonic
-import SystemCheck
+from SystemCheck import system_check
 
-XRAY = Photonic.Photonic()
+XRAY = Photonic.Photonic(raise_exceptions=False)
 
-if SystemCheck.system_check(XRAY):
+if system_check(XRAY):
     print("System check passed. Proceeding...")
-
-    img = XRAY.capture(100, 1000) # Power (%), Time (ms), FilamentCurrent (Amps)
+    img = XRAY.capture(75, 2000) # HV Power (%), Time (ms)
 
     if img:
         img.save("imgs/SingleScan.jpg")

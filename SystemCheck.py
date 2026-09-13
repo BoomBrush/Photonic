@@ -7,14 +7,15 @@ def system_check(XRAY):
     return_value = True
 
     # Filament
-    print("Checking filament")
+    print("Checking filament voltage")
     if XRAY.filament_psu.voltage() < FILAMENT_VOLTAGE_THRESHOLD:
         print("FAIL: Filament voltage not present")
         return_value = False
 
-    XRAY.filament(True)
+    XRAY.filament(True, 50)
     sleep(0.5)
-    if XRAY.filament_psu.power() < FILAMENT_POWER_THRESHOLD:
+    print("Checking filament current")
+    if XRAY.filament_psu.current() < FILAMENT_CURRENT_THRESHOLD:
         print("FAIL: Filament no load")
         XRAY.filament(False)
         return_value = False
@@ -27,20 +28,20 @@ def system_check(XRAY):
         print("FAIL: HV PSU Not detected")
         return_value = False
 
-    XRAY.hv(0.5)
-    sleep(0.25)
+    #XRAY.hv(0.5)
+    #sleep(0.25)
 
-    vout = XRAY.hv_highside.voltage()
-    if vout < 1.0:
-        print("FAIL: HV Not present")
-        return_value = False
+    #vout = XRAY.hv_highside.voltage()
+    #if vout < 1.0:
+    #    print("FAIL: HV Not present")
+   #     return_value = False
 
-    high_voltage = XRAY.calculate_hv(vout)
-    if high_voltage < HV_VOLTAGE_THRESHOLD:
-        print("FAIL: HV below threshold")
-        return_value = False
+    #high_voltage = XRAY.calculate_hv(vout)
+    #if high_voltage < HV_VOLTAGE_THRESHOLD:
+    #    print("FAIL: HV below threshold")
+    #    return_value = False
 
-    XRAY.hv(0)
+    #XRAY.hv(0)
 
     # Camera
     for attempt in range(1, MAX_CAPTURE_ATTEMPTS + 1):
@@ -50,7 +51,7 @@ def system_check(XRAY):
         sleep(0.25)
         XRAY.camera_shutter(False)
 
-        if not XRAY.ignore_camera:
+        try:
             XRAY.dslr.capture_successful.wait(timeout=CAMERA_TIMEOUT)
 
             if XRAY.dslr.capture_filepath:
@@ -59,18 +60,19 @@ def system_check(XRAY):
             else:
                 print("FAIL: DSLR Capture")
 
-        if attempt == MAX_CAPTURE_ATTEMPTS:
+            if attempt == MAX_CAPTURE_ATTEMPTS:
+                return_value = False
+        except AttributeError:
             return_value = False
 
     return return_value
 
 
 if __name__ == "__main__":
-    XRAY = Photonic()
+    XRAY = Photonic(raise_exceptions=False)
 
     if system_check(XRAY):
         print("System check passed!")
     else:
         print("System check failed")
 
-    XRAY.finished()

@@ -17,13 +17,12 @@ import gphoto2 as gp
 from LED import LED
 
 # Pins
-CAMERA_SHUTTER_PIN = 25
+CAMERA_SHUTTER_PIN = 22
+#FILAMENT_MOSFET_PIN = 21
+FILAMENT_RELAY_PIN = 16
 
-FILAMENT_MOSFET_PIN = 18
-FILAMENT_RELAY_PIN = 23
-
-HV_POWER_PIN = 0
-HV_ACTIVE_PIN = 26
+HV_POWER_PIN = 9
+HV_ACTIVE_PIN = 0
 HV_PWM_PIN = 13
 
 #STEPPER_STEP_PIN = 17
@@ -31,26 +30,24 @@ HV_PWM_PIN = 13
 #STEPPER_ENABLE_PIN = 26
 
 # Absolute limits / definitions
-MAX_FILAMENT_CURRENT = 2.0
 MAX_HV_POWER = 100
 MAX_DURATION = 10000
 
-FILAMENT_WAIT_TIME = 500
+FILAMENT_WAIT_TIME = 2500
 FILAMENT_VOLTAGE_THRESHOLD = 3.80
-FILAMENT_POWER_THRESHOLD = 1.00
+FILAMENT_CURRENT_THRESHOLD = 1.00
 
 HV_VOLTAGE_THRESHOLD = 1000
-
-#STEPPER_STEPS_PER_ROTATION = 200
-#STEPPER_SPEED = 0.001
-
 CAMERA_TIMEOUT = 10
 MAX_CAPTURE_ATTEMPTS = 3
 
 HV_R1_RESISTANCE = 70_750_000
 HV_R2_RESISTANCE = 21_800
 
-KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py"]
+KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py", "-m"]
+
+#STEPPER_STEPS_PER_ROTATION = 200
+#STEPPER_SPEED = 0.001
 
 
 class GPhoto2(threading.Thread):
@@ -91,6 +88,7 @@ class GPhoto2(threading.Thread):
 
         print("GPhoto2 thread stopping")
 
+
 class PowerMonitor():
     def __init__(self, address, disabled=False):
         self.disabled = disabled
@@ -99,7 +97,7 @@ class PowerMonitor():
             self.ina = INA219(shunt_ohms = 0.1,
                               max_expected_amps = 3.0,
                               address = address,
-                              busnum=2)
+                              busnum=1)
 
             self.ina.configure(voltage_range=self.ina.RANGE_16V,
                                gain=self.ina.GAIN_AUTO,
@@ -110,12 +108,12 @@ class PowerMonitor():
         if self.disabled: return 0.0
 
         try:
-            if self.ina.power() == 0.0:
-                return 0.0
-
             return int(self.ina.current())
+            #if self.ina.power() == 0.0:
+            #    return 0.0
         except DeviceRangeError:
-            return self.current()
+            raise Exception("INA219 current range error")
+            #return self.current()
 
     def voltage(self):
         if self.disabled: return 0.0
@@ -128,16 +126,16 @@ class PowerMonitor():
         try:
             return int(self.ina.power())
         except DeviceRangeError:
-            return int(self.power())
+            raise Exception("INA219 power range error")
+            #return int(self.power())
 
 
 class Photonic():
-    def __init__(self, ignore_camera=False, skip_filament=False, keep_filament_on=False):
+    def __init__(self, raise_exceptions=True):
         # Class variables
-        self.ignore_camera = ignore_camera
-        self.skip_filament = skip_filament
-        self.keep_filament_on = keep_filament_on
         self.status_led = LED()
+        self.raise_exceptions = raise_exceptions
+        self.capture_attempts = 0
 
         # GPIO Inits
         self.initialize_gpio()
@@ -148,25 +146,30 @@ class Photonic():
         # INA219 Init
         try:
             self.filament_psu = PowerMonitor(0x40)
-            self.hv_highside = PowerMonitor(0x41)
-            self.hv_lowside = PowerMonitor(0x44)
+            #self.hv_highside = PowerMonitor(0x41)
+            #self.hv_lowside = PowerMonitor(0x44)
+
         except OSError:
-            print("WARNING: INA219 ERROR")
+            if raise_exceptions: raise Exception("WARNING: INA219 ERROR")
+
             self.filament_psu = PowerMonitor(0x40, disabled=True)
-            self.hv_highside = PowerMonitor(0x41, disabled=True)
-            self.hv_lowside = PowerMonitor(0x44, disabled=True)
+            #self.hv_highside = PowerMonitor(0x41, disabled=True)
+            #self.hv_lowside = PowerMonitor(0x44, disabled=True)
 
         # Start camera thread and init DSLR
-        if not self.ignore_camera:
-            self.initialize_dslr()
+        if not self.initialize_dslr():
+            if raise_exceptions: raise Exception("WARNING: DSLR NOT INITIALIZED")
+            else: print("WARNING: DSLR NOT INITIALIZED")
 
         # HV PSU powered check
         if self.gpio_hv_power.value != 1:
-            print("WARNING: HV PSU NOT DETECTED")
+            if raise_exceptions: raise Exception("WARNING: HV PSU NOT DETECTED")
+            else: print("WARNING: HV PSU NOT DETECTED")
 
         # Filament power check
         if self.filament_psu.voltage() < FILAMENT_VOLTAGE_THRESHOLD:
-            print("WARNING: NO POWER TO FILAMENT")
+            if raise_exceptions: raise Exception("WARNING: NO POWER TO FILAMENT")
+            else: print("WARNING: NO POWER TO FILAMENT")
 
     def kill_other_python_processes(self):
         current_pid = os.getpid()
@@ -195,13 +198,15 @@ class Photonic():
             self.dslr.start()
         except Exception as e:
             print("DSLR Error:", e)
-            self.ignore_camera = True
+            return False
+
+        return True
 
     def initialize_gpio(self):
         self.gpio_hv_power = gpiozero.InputDevice(HV_POWER_PIN)
         self.gpio_hv_enable = gpiozero.OutputDevice(HV_ACTIVE_PIN)
         self.gpio_hv_pwm = gpiozero.PWMOutputDevice(HV_PWM_PIN)
-        self.gpio_filament_mosfet = gpiozero.PWMOutputDevice(FILAMENT_MOSFET_PIN)
+        #self.gpio_filament_mosfet = gpiozero.PWMOutputDevice(FILAMENT_MOSFET_PIN)
         self.gpio_filament_relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
         self.gpio_camera_shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         #self.stepper_step = gpiozero.OutputDevice(STEPPER_STEP_PIN)
@@ -227,30 +232,26 @@ class Photonic():
 #
 #        self.stepper_enable.on()
 
-    def capture(self, power, duration, filament_current=MAX_FILAMENT_CURRENT):
+    def capture(self, power, duration, filament_current=100):
+        self.capture_attempts += 1
+
         # Enforce absolute limits
-        if power > MAX_HV_POWER: power = MAX_HV_POWER
         if duration > MAX_DURATION: duration = MAX_DURATION
-        if filament_current > MAX_FILAMENT_CURRENT: filament_current = MAX_FILAMENT_CURRENT
 
         # Set LED to red
-        self.led(1, 0, 0)
+        #self.led(1, 0, 0)
 
         # Wait for filament to heat up
-        if not self.skip_filament:
-            self.filament(True, filament_current)
-            sleep(FILAMENT_WAIT_TIME / 1000)
-            #print(f"Filament {self.filament_psu.current()}mA, {self.filament_psu.voltage()}V, {self.filament_psu.power()}mW")
+        self.filament(True, filament_current)
+        sleep(FILAMENT_WAIT_TIME / 1000)
 
         # Turn HV and camera on then wait
         self.hv(power / 100)
+        self.camera_shutter(True)
 
-        if not self.ignore_camera:
-            self.camera_shutter(True)
-
-        hv_voltage = int(round(self.calculate_hv(self.hv_highside.voltage()) / 1000, 0))
-        hv_current = self.hv_lowside.current()
-        capture_settings = f"{power}% {duration}ms {self.filament_psu.current()}mA/{filament_current}A {hv_voltage}kV {hv_current}mA"
+        #hv_voltage = int(round(self.calculate_hv(self.hv_highside.voltage()) / 1000, 0))
+        #hv_current = self.hv_lowside.current()
+        capture_settings = f"{power}% {duration}ms - {self.filament_psu.current()}mA"
 
         # Wait for set duration
         print(f"Capture started:", capture_settings)
@@ -259,18 +260,8 @@ class Photonic():
         # Turn camera, HV and filament off
         self.camera_shutter(False)
         self.hv(0)
-        self.led(1, 1, 0)
-
-        if not self.keep_filament_on:
-            self.filament(False)
-            sleep(FILAMENT_WAIT_TIME / 1000)
-
-        # Return if ignoring camera
-        if self.ignore_camera:
-            print("Ignoring camera")
-            return None
-        elif not self.dslr.camera_detected:
-            return None
+        #self.led(1, 1, 0)
+        self.filament(False)
 
         # Get image from camera
         print("Waiting for camera capture event")
@@ -278,28 +269,31 @@ class Photonic():
 
         if self.dslr.capture_filepath:
             print("Recieved image from camera")
+            self.capture_attempts = 0
             # Set LED to green
-            self.led(0, 1, 0, turn_off_period = 10)
+            #self.led(0, 1, 0, turn_off_period = 10)
 
+            # Add parameters as text top left of picture
             img = Image.open(self.dslr.capture_filepath)
-
             image_draw = ImageDraw.Draw(img)
             image_font = ImageFont.truetype("ARIAL.TTF", 36)
-
             image_draw.text((40, 40), capture_settings, fill=(255, 255, 255), font=image_font)
 
             return img
 
         print("Did not receive capture after timeout period. Retrying...")
 
-        return self.capture(power, duration, filament_current)
+        if self.capture_attempts < MAX_CAPTURE_ATTEMPTS: return self.capture(power, duration, filament_current)
 
-    def filament(self, state, value=MAX_FILAMENT_CURRENT):
+        # Reached max capture attempts
+        return None
+
+    def filament(self, state, value=100):
         if state:
-            self.gpio_filament_mosfet.value = float(value) / MAX_FILAMENT_CURRENT
+            #self.gpio_filament_mosfet.value = value / 100
             self.gpio_filament_relay.on()
         else:
-            self.gpio_filament_mosfet.value = 0.0
+            #self.gpio_filament_mosfet.value = 0.0
             self.gpio_filament_relay.off()
 
     def camera_shutter(self, state):
@@ -332,12 +326,7 @@ class Photonic():
         return vout / (HV_R2_RESISTANCE / (HV_R1_RESISTANCE + HV_R2_RESISTANCE))
 
     def finished(self):
-        if not self.ignore_camera:
-            self.dslr.listening = False
-
+        self.dslr.listening = False
         self.filament(False)
         self.hv(0)
-
-        if not self.ignore_camera:
-            self.camera_shutter(False)
-            self.dslr.listening = False
+        self.camera_shutter(False)

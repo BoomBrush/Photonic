@@ -1,11 +1,10 @@
 from time import sleep
 import Photonic
-import numpy, cv2
 
-XRAY = Photonic.Photonic()
+XRAY = Photonic.Photonic(raise_exceptions=False)
 
-img = XRAY.capture(50, 1000) # Power (%), Time (ms), FilamentCurrent (Amps)
-print(img, type(img))
+sleep(5)
+img = XRAY.capture(100, 2000) # Power (%), Time (ms), Filament power (%)
 
 if img:
     img.save("imgs/SingleScan.jpg")
