@@ -46,10 +46,10 @@ while True:
 
     if current_state != last_state:
         if current_state == 0:
-            create_access_point()
+            connect_to_wifi()
 
         elif current_state == 1:
-            connect_to_wifi()
+            create_access_point()
 
         last_state = current_state
 

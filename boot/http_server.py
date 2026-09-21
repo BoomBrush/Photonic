@@ -1,5 +1,7 @@
 import subprocess, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import socket
+import os
 
 
 html = '''<html><body><table>
@@ -47,11 +49,18 @@ class handler(BaseHTTPRequestHandler):
             if key == "power": power = value
             if key == "duration": duration = value
 
+
+        gw = os.popen("ip -4 route show default").read().split()
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((gw[2], 0))
+        ipaddr = s.getsockname()[0]
+
         p = subprocess.run(["python", "/home/boombrush/Photonic/Remote.py", power, duration])
         #out, err = p.communicate()
         #print(out)
 
-        self.wfile.write(bytes(html + '<img width="100%" src="http://192.168.2.22:8001/imgs/remote.jpg">' + html_end, "utf8"))
+        self.wfile.write(bytes(html + '<img width="100%" src="http://' + ipaddr + ':8001/imgs/remote.jpg">' + html_end, "utf8"))
+
 
 
 server = HTTP_Server()

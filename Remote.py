@@ -21,7 +21,7 @@ else:
 img = XRAY.capture(power, duration) # Power (%), Time (ms)
 
 if img:
-    img.save(f"imgs/{filename}.jpg")
+    img.convert('L').save(f"imgs/{filename}.jpg")
     print("Done")
 else:
     print("Image failed to be captured")

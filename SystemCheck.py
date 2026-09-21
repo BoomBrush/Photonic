@@ -12,7 +12,7 @@ def system_check(XRAY):
         print("FAIL: Filament voltage not present")
         return_value = False
 
-    XRAY.filament(True, 50)
+    XRAY.filament(True)
     sleep(0.5)
     print("Checking filament current")
     if XRAY.filament_psu.current() < FILAMENT_CURRENT_THRESHOLD:
