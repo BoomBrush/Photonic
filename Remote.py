@@ -4,11 +4,7 @@ import Photonic, sys
 import numpy, cv2
 from SystemCheck import system_check
 
-XRAY = Photonic.Photonic(raise_exceptions=False)
-
-sleep(10)
-
-system_check(XRAY)
+XRAY = Photonic.Photonic(disable_led=True)
 
 power = int(sys.argv[1])
 duration = int(sys.argv[2])
@@ -18,12 +14,14 @@ if len(sys.argv) == 4:
 else:
     filename = "remote"
 
-img = XRAY.capture(power, duration) # Power (%), Time (ms)
+if system_check(XRAY):
+    img = XRAY.capture(power, duration) # Power (%), Time (ms)
 
-if img:
-    img.convert('L').save(f"imgs/{filename}.jpg")
-    print("Done")
+    if img:
+        img.save(f"imgs/{filename}.jpg")
+    else:
+        print("Image failed to be captured")
 else:
-    print("Image failed to be captured")
+    print("System check failed")
 
-XRAY.finished()
+XRAY.finish()

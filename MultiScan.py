@@ -2,17 +2,15 @@ from time import sleep
 import Photonic
 import SystemCheck
 
-POWER = 80
-DURATION = 2000
-NUMBER_OF_SCANS = 5
 
-XRAY = Photonic.Photonic(ignore_ina219=True)
+XRAY = Photonic.Photonic(disable_led=True)
 
-SystemCheck.system_check(XRAY)
+filament_power_levels = list(range(2000, 4000, 100))
+print(filament_power_levels)
 
-for i in range(NUMBER_OF_SCANS):
-    print("Scan", i + 1)
-    img = XRAY.capture(POWER, DURATION)
-    img.save("imgs/" + str(i) + ".jpg")
+for power_level in filament_power_levels:
+    print(f"XRAY at {power_level} power")
+    img = XRAY.capture(100, 3000, power_level)
+    img.save(f"imgs/multiscan_{power_level}.jpg")
 
-XRAY.finished()
+XRAY.finish()

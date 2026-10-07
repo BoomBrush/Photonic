@@ -4,7 +4,7 @@ import Photonic, sys
 import numpy, cv2
 from SystemCheck import system_check
 
-XRAY = Photonic.Photonic(raise_exceptions=False)
+XRAY = Photonic.Photonic(ignore_exceptions=True)
 
 power = int(sys.argv[1])
 duration = int(sys.argv[2])
@@ -16,10 +16,11 @@ else:
 
 img = XRAY.capture(power, duration) # Power (%), Time (ms)
 
+filename = f"{filename}"
+
 if img:
     img.save(f"imgs/{filename}.jpg")
-    print("Done")
 else:
     print("Image failed to be captured")
 
-XRAY.finished()
+XRAY.finish()

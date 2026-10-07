@@ -16,4 +16,4 @@ if system_check(XRAY):
 else:
     print("System check failed")
 
-XRAY.finished()
+XRAY.finish()

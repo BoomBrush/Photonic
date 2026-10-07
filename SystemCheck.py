@@ -8,19 +8,19 @@ def system_check(XRAY):
 
     # Filament
     print("Checking filament voltage")
-    if XRAY.filament_psu.voltage() < FILAMENT_VOLTAGE_THRESHOLD:
+    if XRAY.filament.power.voltage() < FILAMENT_VOLTAGE_THRESHOLD:
         print("FAIL: Filament voltage not present")
         return_value = False
 
-    XRAY.filament(True)
+    XRAY.filament.set(True)
     sleep(0.5)
     print("Checking filament current")
-    if XRAY.filament_psu.current() < FILAMENT_CURRENT_THRESHOLD:
+    if XRAY.filament.power.current() < FILAMENT_CURRENT_THRESHOLD:
         print("FAIL: Filament no load")
-        XRAY.filament(False)
+        XRAY.filament.set(False)
         return_value = False
 
-    XRAY.filament(False)
+    XRAY.filament.set(False)
 
     # HV
     print("Checking HV")
@@ -47,15 +47,15 @@ def system_check(XRAY):
     for attempt in range(1, MAX_CAPTURE_ATTEMPTS + 1):
         print(f"Checking camera attempt {attempt}/{MAX_CAPTURE_ATTEMPTS}")
 
-        XRAY.camera_shutter(True)
+        XRAY.dslr.enable(True)
         sleep(0.25)
-        XRAY.camera_shutter(False)
+        XRAY.dslr.enable(False)
 
         try:
             XRAY.dslr.capture_successful.wait(timeout=CAMERA_TIMEOUT)
 
             if XRAY.dslr.capture_filepath:
-                print("Recieved image from camera")
+                print("Recieved test image from camera")
                 break
             else:
                 print("FAIL: DSLR Capture")
@@ -75,4 +75,6 @@ if __name__ == "__main__":
         print("System check passed!")
     else:
         print("System check failed")
+
+    XRAY.finished()
 

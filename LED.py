@@ -1,60 +1,63 @@
 from multiprocessing.connection import Listener, Client
 import gpiozero, threading
-from time import sleep
+from time import time, sleep
 
 
 # Definitions
 LED_RED_PIN = 20
-LED_GREEN_PIN = 21
-LED_BLUE_PIN = 27 # 16
+LED_GREEN_PIN = 16
 
 
 class LED(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
+        self.started = False
 
     def run(self):
+        self.started = True
+
         self.led_r = gpiozero.OutputDevice(LED_RED_PIN)
         self.led_g = gpiozero.OutputDevice(LED_GREEN_PIN)
-        self.led_b = gpiozero.OutputDevice(LED_BLUE_PIN)
 
-        address = ('localhost', 5000)     # family is deduced to be 'AF_INET'
+        address = ('127.0.0.1', 5000)     # family is deduced to be 'AF_INET'
 
         while True:
-            listener = Listener(address, authkey=b'boom')
+            listener = Listener(address, authkey=b'boombrush')
             conn = listener.accept()
             print('connection accepted from', listener.last_accepted)
+            delay_period = 0
 
             while True:
                 msg = conn.recv()
 
-                if len(msg) == 3:
-                    self.led(msg[0], msg[1], msg[2])
-                elif len(msg) == 4:
-                    self.led(msg[0], msg[1], msg[2])
-                    sleep(msg[3])
-                    self.led(0, 0, 0)
+                if len(msg) == 2:
+                    self.led(msg[0], msg[1])
+                elif len(msg) == 3:
+                    self.led(msg[0], msg[1])
+                    sleep(msg[2])
+                    self.led(0, 0)
                 elif msg == 'close':
                     conn.close()
                     break
 
             listener.close()
 
-    def set(self, r, g, b, turn_off_period=None):
-        if turn_off_period:
-            self.conn_client.send([r, g, b, turn_off_period])
-        else:
-            self.conn_client.send([r, g, b])
+    def set(self, r, g, turn_off_period=0):
+        print("LED:",  r, g, turn_off_period)
+        self.conn_client.send([r, g, turn_off_period])
 
     def connect(self):
-        address = ('localhost', 5000)
-        self.conn_client = Client(address, authkey=b'boom')
+        address = ('127.0.0.1', 5000)
+        try:
+            self.conn_client = Client(address, authkey=b'boombrush')
+        except Exception as e:
+            print("Could not reconnect to LED:", e)
 
     def disconnect(self):
         self.conn_client.send('close')
         self.conn_client.close()
 
-    def led(self, r, g, b):
+    def led(self, r, g):
         if r:
             self.led_r.on()
         else:
@@ -65,13 +68,20 @@ class LED(threading.Thread):
         else:
             self.led_g.off()
 
-        if b:
-            self.led_b.on()
-        else:
-            self.led_b.off()
-
 
 if __name__ == "__main__":
     led = LED()
     led.start()
+
     led.connect()
+    try:
+        while True:
+            led.set(1, 0)
+            sleep(1)
+            led.set(1, 1)
+            sleep(1)
+            led.set(0, 1)
+            sleep(1)
+    except Exception:
+        print("LED disconnect")
+        led.disconnect()

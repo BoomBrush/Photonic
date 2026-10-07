@@ -13,4 +13,4 @@ if img:
 else:
     print("Image failed")
 
-XRAY.finished()
+XRAY.finish()
