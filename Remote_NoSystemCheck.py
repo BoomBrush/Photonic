@@ -4,7 +4,7 @@ import Photonic, sys
 import numpy, cv2
 from SystemCheck import system_check
 
-XRAY = Photonic.Photonic(ignore_exceptions=True)
+XRAY = Photonic.Photonic(disable_led=True)
 
 power = int(sys.argv[1])
 duration = int(sys.argv[2])

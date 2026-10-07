@@ -1,0 +1,48 @@
+import Adafruit_MCP4725
+import gpiozero
+from time import sleep
+import serial
+from ina219 import INA219
+from math import log
+
+
+FILAMENT_RELAY_PIN = 0
+
+filament_relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
+
+ina = INA219(shunt_ohms = 0.1,
+             max_expected_amps = 3.1,
+             address = 0x40,
+             busnum=1)
+
+ina.configure(voltage_range=ina.RANGE_16V,
+              gain=ina.GAIN_AUTO,
+              bus_adc=ina.ADC_128SAMP,
+              shunt_adc=ina.ADC_128SAMP)
+
+
+def current_to_mosfet(value):
+    return int(100.74957491 * log(value) + 2099.92353395 + 30)
+
+
+dac = Adafruit_MCP4725.MCP4725(busnum=1, address=0x60)
+
+filament_relay.on()
+
+desired_current = 1800
+
+mosfet_value = current_to_mosfet(desired_current)
+
+while True:
+    mosfet_current = ina.current()
+    sleep(0.1)
+
+    if mosfet_current < desired_current:
+        print("LESS THAN")
+        mosfet_value +=
+    elif mosfet_current > desired_current:
+        print("GREATER THAN")
+        mosfet_value -=
+
+    dac.set_voltage(mosfet_value)
+    print("Current:", mosfet_current, "Mosfet value:", mosfet_value, "Difference:", (mosfet_current - desired_current) * 0.1)

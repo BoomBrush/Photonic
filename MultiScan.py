@@ -3,10 +3,12 @@ import Photonic
 import SystemCheck
 
 
-XRAY = Photonic.Photonic(disable_led=True)
+XRAY = Photonic.Photonic()
+
 
 filament_power_levels = list(range(2000, 4000, 100))
 print(filament_power_levels)
+
 
 for power_level in filament_power_levels:
     print(f"XRAY at {power_level} power")

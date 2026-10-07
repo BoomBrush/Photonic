@@ -12,6 +12,8 @@ from time import sleep
 from io import BytesIO
 from signal import pthread_kill, SIGTSTP
 from ina219 import INA219, DeviceRangeError
+from multiprocessing.connection import Listener, Client
+
 import Adafruit_MCP4725, Adafruit_ADS1x15
 
 import gphoto2 as gp
@@ -53,17 +55,41 @@ HV_VOLTAGE_THRESHOLD = 1000
 CAMERA_TIMEOUT = 10
 MAX_CAPTURE_ATTEMPTS = 3
 
-KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py", "-m"]
+KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py", "-m", "camera.py"]
 
 
 class Camera(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
-        self.detected = False
-        self.ready = threading.Event()
-
         self.shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         self.trigger(False)
+
+        self.ready = threading.Event()
+        self.capture_filepath = None
+
+        self.skip_system_check = None
+
+    def run_threading(self):
+        address = ('127.0.0.1', 6000)
+
+        if self.connect(address):
+            self.conn_client.send("skip")
+            msg = self.conn_client.recv()
+            self.skip_system_check = msg
+
+            self.conn_client.send("close")
+            self.conn_client.close()
+
+        if self.connect(address):
+            self.conn_client.send("image")
+            msg = self.conn_client.recv()
+
+            self.conn_client.send("close")
+            self.conn_client.close()
+
+        self.ready.set()
+        self.capture_filepath = msg
+        self.ready.clear()
 
     def run(self):
         print("Camera thread started")
@@ -105,6 +131,14 @@ class Camera(threading.Thread):
         else:
             self.shutter.on()
 
+    def connect(self, address):
+        try:
+            self.conn_client = Client(address, authkey=b'boombrush')
+            return True
+        except Exception as e:
+            print("Could not connect to Photonic program:", e)
+
+        return False
 
 class PowerMonitor():
     def __init__(self, address):
@@ -204,7 +238,7 @@ class Filament(threading.Thread):
             self.dac.set_voltage(0)
 
     def mosfet_voltage(self, adc_value):
-        round((adc_value / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1, 3)
+        return round((adc_value / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1, 3)
 
 
 class HighVoltage():
@@ -254,7 +288,7 @@ class Photonic():
         signal.signal(signal.SIGINT, self.finish)
 
         # Kill other Python XRAY processes
-        self.kill_other_python_processes()
+        self.manage_python_processes()
 
         # Class variables
         self.ignore_exceptions = ignore_exceptions
@@ -266,7 +300,6 @@ class Photonic():
         self.filament = Filament()
         self.hv = HighVoltage()
         self.led = LED()
-        self.led.set(0, 0)
 
         # DSLR init
         try:
@@ -278,9 +311,9 @@ class Photonic():
         self.dslr.ready.wait(CAMERA_TIMEOUT)
 
         # DSLR check
-        if not self.dslr.detected:
-            if not ignore_exceptions: raise Exception("WARNING: DSLR NOT INITIALIZED")
-            else: print("WARNING: DSLR NOT INITIALIZED")
+        #if not self.dslr.detected:
+        #    if not ignore_exceptions: raise Exception("WARNING: DSLR NOT INITIALIZED")
+        #    else: print("WARNING: DSLR NOT INITIALIZED")
 
         # HV PSU powered check
         if self.hv.present.value != 1:
@@ -308,7 +341,7 @@ class Photonic():
 
         # Turn HV and camera on then wait
         self.hv.set(power / 100)
-        if self.dslr.detected: self.dslr.trigger(True)
+        self.dslr.trigger(True)
 
         # LED to red
         if not self.disable_led: self.led.set(1, 0)
@@ -332,7 +365,7 @@ class Photonic():
         sleep((duration / 1000) - 0.5)
 
         # Turn camera, HV and filament off
-        if self.dslr.detected: self.dslr.trigger(False)
+        self.dslr.trigger(False)
         self.hv.set(0)
         self.filament.set(False)
 
@@ -340,19 +373,21 @@ class Photonic():
         if not self.disable_led: self.led.set(1, 1)
 
         # If camera not present, return
-        if not self.dslr.detected: return False
+        #if not self.dslr.detected: return False
 
         # Get image from camera
         print("Waiting for camera capture event")
-        self.dslr.capture_successful.wait(timeout=CAMERA_TIMEOUT)
+        self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
 
         if self.dslr.capture_filepath:
             print("Recieved image from camera")
+            self.dslr.listening = False
             self.capture_attempts = 0
             # LED to green
             if not self.disable_led: self.led.set(0, 1, turn_off_period = 10)
 
             # Add parameters as text at top left of picture
+            print(self.dslr.capture_filepath)
             img = Image.open(self.dslr.capture_filepath)
             image_draw = ImageDraw.Draw(img)
             image_font = ImageFont.truetype("ARIAL.TTF", 36)
@@ -371,8 +406,9 @@ class Photonic():
         if not self.disable_led: self.led.set(0, 0)
         return None
 
-    def kill_other_python_processes(self):
+    def manage_python_processes(self):
         current_pid = os.getpid()
+        camera_script_running = False
 
         for process_id in psutil.pids():
             if process_id == current_pid: continue
@@ -392,13 +428,26 @@ class Photonic():
                         print("Killing script:", ' '.join(cmd_line))
                         p.kill()
 
+                    if filename == "camera.py":
+                        camera_script_running = True
+
+        if not camera_script_running:
+            pass
+            #print("Running camera script")
+            #subprocess.run(["python", "/home/boombrush/Photonic/boot/camera.py", "&"], shell=False)
+            #print("Now running camera script")
+
     # Cleanup method to make sure controls are gracefully stopped
     def finish(self):
         if self.finished: return False
         print("Exiting...")
 
-        if self.dslr.detected: self.dslr.listening = False
-        self.filament.set(False)
-        self.hv.set(0)
-        if self.dslr.detected: self.dslr.trigger(False)
-        self.finished = True
+        try:
+            self.dslr.listening = False
+            self.filament.set(False)
+            self.hv.set(0)
+            self.dslr.trigger(False)
+            self.finished = True
+        except Exception:
+            pass
+

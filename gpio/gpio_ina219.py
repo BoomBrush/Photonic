@@ -4,19 +4,22 @@ import sys
 sys.path.insert(0, "/home/boombrush/Photonic")
 from Photonic import PowerMonitor
 
-ina_filament = PowerMonitor(0x40)
-ina_hv_highside = PowerMonitor(0x44)
-ina_hv_lowside = PowerMonitor(0x41)
+filament = PowerMonitor(0x40)
+voltage_3v3 = PowerMonitor(0x41)
 
 
 print("Filament:")
-print(f"{ina_filament.voltage()}V, {ina_filament.current()}mA, {ina_filament.power()}mW")
+print(f"{filament.voltage()}V, {filament.current()}mA, {filament.power()}mW")
 
-print("HV Highside")
-print(f"{ina_hv_highside.voltage()}V, {ina_hv_highside.current()}mA, {ina_hv_highside.power()}mW")
+print("Voltage 3.3v:")
+print(f"{voltage_3v3.voltage()}V, {voltage_3v3.current()}mA, {voltage_3v3.power()}mW")
 
-print("HV Lowside")
-print(f"{ina_hv_lowside.voltage()}V, {ina_hv_lowside.current()}mA, {ina_hv_lowside.power()}mW")
+
+#print("HV Highside")
+#print(f"{ina_hv_highside.voltage()}V, {ina_hv_highside.current()}mA, {ina_hv_highside.power()}mW")
+
+#print("HV Lowside")
+#print(f"{ina_hv_lowside.voltage()}V, {ina_hv_lowside.current()}mA, {ina_hv_lowside.power()}mW")
 
 #print()
 

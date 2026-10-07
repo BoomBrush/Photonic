@@ -24,7 +24,7 @@ def system_check(XRAY):
 
     # HV
     print("Checking HV")
-    if XRAY.gpio_hv_power.value != 1:
+    if XRAY.hv.present.value != 1:
         print("FAIL: HV PSU Not detected")
         return_value = False
 
@@ -69,12 +69,12 @@ def system_check(XRAY):
 
 
 if __name__ == "__main__":
-    XRAY = Photonic(raise_exceptions=False)
+    XRAY = Photonic()
 
     if system_check(XRAY):
         print("System check passed!")
     else:
         print("System check failed")
 
-    XRAY.finished()
+    XRAY.finish()
 
