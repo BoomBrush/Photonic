@@ -59,12 +59,15 @@ KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py", "-m"]
 class Camera(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
+        self.detected = False
+        self.ready = threading.Event()
+
         self.shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         self.trigger(False)
 
+    def run(self):
+        print("Camera thread started")
         self.camera = gp.Camera()
-        self.detected = False
-
         camera_list = list(gp.Camera.autodetect())
 
         if len(camera_list) > 0:
@@ -72,6 +75,7 @@ class Camera(threading.Thread):
             print(camera_list[0][0], "initialized")
 
             self.detected = True
+            self.ready.set()
         else:
             raise Exception("No DSLR camera detected")
 
@@ -79,8 +83,6 @@ class Camera(threading.Thread):
         self.capture_filepath = None
         self.timeout = CAMERA_TIMEOUT * 1000
 
-    def run(self):
-        print("Camera thread started")
         self.listening = True
 
         while self.listening:
@@ -273,6 +275,8 @@ class Photonic():
         except Exception as e:
             print("DSLR Error:", e)
 
+        self.dslr.ready.wait(CAMERA_TIMEOUT)
+
         # DSLR check
         if not self.dslr.detected:
             if not ignore_exceptions: raise Exception("WARNING: DSLR NOT INITIALIZED")
@@ -305,13 +309,15 @@ class Photonic():
         # Turn HV and camera on then wait
         self.hv.set(power / 100)
         if self.dslr.detected: self.dslr.trigger(True)
+
+        # LED to red
+        if not self.disable_led: self.led.set(1, 0)
+
+        # Wait for set period
         sleep(0.5)
 
         # get filament current
         filament_current = self.filament.power.current()
-
-        # LED to red
-        if not self.disable_led: self.led.set(1, 0)
 
         # MOSFET voltage
         mosfet_voltage = self.filament.mosfet_voltage(self.adc.average(3, 1))
@@ -320,8 +326,8 @@ class Photonic():
         hv_current_estimate = self.hv.estimate(filament_current)
         hv_voltage = self.hv.calculate()
 
-        # Wait for set duration
-        capture_settings = f"{power}% {duration}ms ~ {int(filament_current)}mA {mosfet_voltage}V ~ {hv_current_estimate}mA {hv_voltage}kV"
+        # Wait for set duration minus already elapsed time
+        capture_settings = f"{power}% {duration}ms {filament_power}/{ADC_MAX} ~ {int(filament_current)}mA {mosfet_voltage}V ~ {hv_current_estimate}mA {hv_voltage}kV"
         print(f"Capture started:", capture_settings)
         sleep((duration / 1000) - 0.5)
 
@@ -333,7 +339,7 @@ class Photonic():
         # LED to yellow
         if not self.disable_led: self.led.set(1, 1)
 
-        # If camera not present
+        # If camera not present, return
         if not self.dslr.detected: return False
 
         # Get image from camera
@@ -346,7 +352,7 @@ class Photonic():
             # LED to green
             if not self.disable_led: self.led.set(0, 1, turn_off_period = 10)
 
-            # Add parameters as text top left of picture
+            # Add parameters as text at top left of picture
             img = Image.open(self.dslr.capture_filepath)
             image_draw = ImageDraw.Draw(img)
             image_font = ImageFont.truetype("ARIAL.TTF", 36)
@@ -386,6 +392,7 @@ class Photonic():
                         print("Killing script:", ' '.join(cmd_line))
                         p.kill()
 
+    # Cleanup method to make sure controls are gracefully stopped
     def finish(self):
         if self.finished: return False
         print("Exiting...")
