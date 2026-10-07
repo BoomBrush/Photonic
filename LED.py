@@ -11,12 +11,9 @@ LED_GREEN_PIN = 16
 class LED(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
-        self.started = False
 
     def run(self):
-        self.started = True
-
-        self.led_r = gpiozero.OutputDevice(LED_RED_PIN)
+        self.led_r = gpiozero.PWMOutputDevice(LED_RED_PIN)
         self.led_g = gpiozero.OutputDevice(LED_GREEN_PIN)
 
         address = ('127.0.0.1', 5000)     # family is deduced to be 'AF_INET'
@@ -43,8 +40,14 @@ class LED(threading.Thread):
             listener.close()
 
     def set(self, r, g, turn_off_period=0):
-        print("LED:",  r, g, turn_off_period)
-        self.conn_client.send([r, g, turn_off_period])
+        self.connect()
+
+        if turn_off_period == 0:
+            self.conn_client.send([r, g])
+        else:
+            self.conn_client.send([r, g, turn_off_period])
+
+        self.disconnect()
 
     def connect(self):
         address = ('127.0.0.1', 5000)
@@ -59,9 +62,9 @@ class LED(threading.Thread):
 
     def led(self, r, g):
         if r:
-            self.led_r.on()
+            self.led_r.value = 0.5
         else:
-            self.led_r.off()
+            self.led_r.value = 0.0
 
         if g:
             self.led_g.on()
@@ -71,17 +74,11 @@ class LED(threading.Thread):
 
 if __name__ == "__main__":
     led = LED()
-    led.start()
 
-    led.connect()
-    try:
-        while True:
-            led.set(1, 0)
-            sleep(1)
-            led.set(1, 1)
-            sleep(1)
-            led.set(0, 1)
-            sleep(1)
-    except Exception:
-        print("LED disconnect")
-        led.disconnect()
+    while True:
+        led.set(1, 0)
+        sleep(1)
+        led.set(1, 1)
+        sleep(1)
+        led.set(0, 1)
+        sleep(1)
