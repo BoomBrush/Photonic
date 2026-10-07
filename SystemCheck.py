@@ -47,9 +47,9 @@ def system_check(XRAY):
     for attempt in range(1, MAX_CAPTURE_ATTEMPTS + 1):
         print(f"Checking camera attempt {attempt}/{MAX_CAPTURE_ATTEMPTS}")
 
-        XRAY.dslr.enable(True)
+        XRAY.dslr.trigger(True)
         sleep(0.25)
-        XRAY.dslr.enable(False)
+        XRAY.dslr.trigger(False)
 
         try:
             XRAY.dslr.capture_successful.wait(timeout=CAMERA_TIMEOUT)

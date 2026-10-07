@@ -90,7 +90,7 @@ class Camera(threading.Thread):
 
         print("Camera thread stopping")
 
-    def enable(self, state):
+    def trigger(self, state):
         if state:
             self.shutter.off()
         else:
@@ -272,7 +272,7 @@ class Photonic():
 
         self.filament.relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
         self.dslr.shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
-        self.dslr.enable(False)
+        self.dslr.trigger(False)
 
         self.hv(0)
 
@@ -292,7 +292,7 @@ class Photonic():
 
         # Turn HV and camera on then wait
         self.hv(power / 100)
-        if self.dslr_present: self.dslr.enable(True)
+        if self.dslr_present: self.dslr.trigger(True)
         sleep(0.5)
 
         # get filament current
@@ -318,7 +318,7 @@ class Photonic():
         sleep(duration / 1000)
 
         # Turn camera, HV and filament off
-        if self.dslr_present: self.dslr.enable(False)
+        if self.dslr_present: self.dslr.trigger(False)
         self.hv(0)
         self.filament.set(False)
 
@@ -401,5 +401,5 @@ class Photonic():
         if self.dslr_present: self.dslr.listening = False
         self.filament.set(False)
         self.hv(0)
-        if self.dslr_present: self.dslr.enable(False)
+        if self.dslr_present: self.dslr.trigger(False)
         self.finished = True
