@@ -1,0 +1,44 @@
+import gpiozero
+from time import sleep
+import serial
+from ina219 import INA219
+import Adafruit_MCP4725
+
+
+#import sys
+#sys.path.append("..")
+#from Photonic import *
+
+FILAMENT_RELAY_PIN = 0
+FILAMENT_MOSFET_PIN = 24
+
+filament_relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
+
+ina = INA219(shunt_ohms = 0.1,
+             max_expected_amps = 3.0,
+             address = 0x40,
+             busnum=1)
+
+ina.configure(voltage_range=ina.RANGE_16V,
+              gain=ina.GAIN_AUTO,
+              bus_adc=ina.ADC_128SAMP,
+              shunt_adc=ina.ADC_128SAMP)
+
+
+try:
+    filament_dac = Adafruit_MCP4725.MCP4725(busnum=1, address=0x61)
+except Exception:
+    print("Address 0x60")
+    filament_dac = Adafruit_MCP4725.MCP4725(busnum=1, address=0x60)
+
+filament_relay.on()
+
+
+for step in list(range(00, 4095)):
+    filament_dac.set_voltage(step)
+    sleep(0.05)
+    current = ina.current()
+    print(round(current, 3), step)
+
+
+filament_relay.off()

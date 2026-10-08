@@ -1,5 +1,5 @@
 from time import sleep
-from Photonic import *
+from Photonic_CameraThread import *
 
 
 def system_check(XRAY):
@@ -44,32 +44,34 @@ def system_check(XRAY):
     #XRAY.hv(0)
 
     # Camera
-    for attempt in range(1, MAX_CAPTURE_ATTEMPTS + 1):
-        print(f"Checking camera attempt {attempt}/{MAX_CAPTURE_ATTEMPTS}")
+    if not XRAY.dslr.skip_system_check:
+        for attempt in range(1, MAX_CAPTURE_ATTEMPTS + 1):
+            print(f"Checking camera attempt {attempt}/{MAX_CAPTURE_ATTEMPTS}")
 
-        XRAY.dslr.trigger(True)
-        sleep(0.25)
-        XRAY.dslr.trigger(False)
+            XRAY.dslr.trigger(True)
+            sleep(0.25)
+            XRAY.dslr.trigger(False)
 
-        try:
-            XRAY.dslr.capture_successful.wait(timeout=CAMERA_TIMEOUT)
+            try:
+                XRAY.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
 
-            if XRAY.dslr.capture_filepath:
-                print("Recieved test image from camera")
-                break
-            else:
-                print("FAIL: DSLR Capture")
+                if XRAY.dslr.capture_filepath:
+                    print("Recieved test image from camera")
+                    break
+                else:
+                    print("FAIL: DSLR Capture")
 
-            if attempt == MAX_CAPTURE_ATTEMPTS:
+                if attempt == MAX_CAPTURE_ATTEMPTS:
+                    return_value = False
+
+            except AttributeError:
                 return_value = False
-        except AttributeError:
-            return_value = False
 
     return return_value
 
 
 if __name__ == "__main__":
-    XRAY = Photonic()
+    XRAY = Photonic(ignore_exceptions=True, disable_led=True)
 
     if system_check(XRAY):
         print("System check passed!")

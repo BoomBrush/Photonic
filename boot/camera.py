@@ -39,10 +39,11 @@ class Camera(threading.Thread):
 
         while True:
            self.conn = listener.accept()
+
            print('connection accepted from', listener.last_accepted)
 
            while self.listening:
-               print("Further listening attempt")
+
                msg = self.conn.recv()
 
                if msg == "skip":
@@ -54,8 +55,7 @@ class Camera(threading.Thread):
                    camera_capture_loop = True
 
                    while camera_capture_loop:
-                       print("Waiting for image...")
-                       event_type, event_data = self.camera.wait_for_event(1000)
+                       event_type, event_data = self.camera.wait_for_event(100)
 
                        if event_type == gp.GP_EVENT_FILE_ADDED:
                            cam_file = self.camera.file_get(event_data.folder, event_data.name, gp.GP_FILE_TYPE_NORMAL)
@@ -65,7 +65,8 @@ class Camera(threading.Thread):
 
                            self.conn.send(target_path)
                            self.skip_system_check = True
-                           sleep(1)
+
+                           sleep(0.5)
 
                            camera_capture_loop = False
                            os.remove("imgs/raw/" + event_data.name)

@@ -1,10 +1,10 @@
 from time import sleep
 from PIL import ImageDraw, ImageFont
-import Photonic, sys
+import Photonic_CameraThread, sys
 import numpy, cv2
 from SystemCheck import system_check
 
-XRAY = Photonic.Photonic(disable_led=True)
+XRAY = Photonic_CameraThread.Photonic(ignore_exceptions=True, disable_led=True)
 
 power = int(sys.argv[1])
 duration = int(sys.argv[2])
