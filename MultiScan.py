@@ -6,7 +6,7 @@ import SystemCheck
 XRAY = Photonic.Photonic()
 
 
-filament_power_levels = list(range(2000, 4000, 100))
+filament_power_levels = list(range(2000, 4095, 100))
 print(filament_power_levels)
 
 

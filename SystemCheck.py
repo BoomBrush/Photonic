@@ -1,5 +1,5 @@
 from time import sleep
-from Photonic_CameraThread import *
+from Photonic import *
 
 
 def system_check(XRAY):
@@ -63,12 +63,10 @@ def system_check(XRAY):
 
                 if attempt == MAX_CAPTURE_ATTEMPTS:
                     return_value = False
-
             except AttributeError:
                 return_value = False
 
     return return_value
-
 
 if __name__ == "__main__":
     XRAY = Photonic(ignore_exceptions=True, disable_led=True)

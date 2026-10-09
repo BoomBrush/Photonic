@@ -6,9 +6,39 @@ from ina219 import INA219
 from math import log
 
 
-FILAMENT_RELAY_PIN = 0
+class Interpolation():
+    def __init__(self, filename):
+        with open(filename,'rb') as file:
+            self.lines = file.readlines()
+            self.dacs = []
+            self.currents = []
 
-filament_relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
+        for line in self.lines:
+            row = line.decode().split(" ")
+
+            current_value = float(row[0])
+            dac_value = float(row[1][:-1])
+
+            self.dacs.append(dac_value)
+            self.currents.append(current_value)
+
+    def dac_to_current(self, value):
+        for i in list(range(len(self.dacs))):
+            dac = self.dacs[i]
+
+            if dac > value:
+                return (self.currents[i] + self.currents[i-1]) / 2
+
+    def current_to_dac(self, value):
+        for i in list(range(len(self.currents))):
+            current = self.currents[i]
+
+            if self.currents[i] > value:
+                return int((self.dacs[i] + self.dacs[i-1]) / 2)
+
+
+FILAMENT_RELAY_PIN = 0
+relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
 
 ina = INA219(shunt_ohms = 0.1,
              max_expected_amps = 3.1,
@@ -21,28 +51,37 @@ ina.configure(voltage_range=ina.RANGE_16V,
               shunt_adc=ina.ADC_128SAMP)
 
 
-def current_to_mosfet(value):
-    return int(100.74957491 * log(value) + 2099.92353395 + 30)
-
 
 dac = Adafruit_MCP4725.MCP4725(busnum=1, address=0x60)
 
-filament_relay.on()
+interpolation = Interpolation("assets//filament_currents.csv")
 
-desired_current = 1800
+relay.on()
 
-mosfet_value = current_to_mosfet(desired_current)
+target_current = 1750
+target = interpolation.current_to_dac(target_current)
+dac.set_voltage(target)
 
 while True:
     mosfet_current = ina.current()
+    print(mosfet_current)
     sleep(0.1)
 
-    if mosfet_current < desired_current:
-        print("LESS THAN")
-        mosfet_value +=
-    elif mosfet_current > desired_current:
-        print("GREATER THAN")
-        mosfet_value -=
+#    mosfet_value = target_dac
+#
+#    if mosfet_current < target_current:
+#        differance = target_current - mosfet_current
+#        mosfet_value += 0
+#
+#        print(f"LESS THAN - mosfet_current: {mosfet_current}, difference: {differance}")
+#        print(ina.voltage())
+#    elif mosfet_current > target_current:
+#        differance = mosfet_current - target_current
+#        mosfet_value -= 0
+#
+#        print(f"GREATER THAN - mosfet_current: {mosfet_current}, difference: {differance}")
+#        print(ina.voltage())
 
-    dac.set_voltage(mosfet_value)
-    print("Current:", mosfet_current, "Mosfet value:", mosfet_value, "Difference:", (mosfet_current - desired_current) * 0.1)
+
+#    dac.set_voltage(mosfet_value)
+

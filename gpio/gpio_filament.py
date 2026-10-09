@@ -12,6 +12,14 @@ from Photonic import ADS1115
 ADC_SAMPLES = 10
 FILAMENT_RELAY_PIN = 0
 
+
+def current_to_value(value):
+    return int(104.96420406 * log(value) + 2029.7201648)
+
+def value_to_current(value):
+    return 4.06553538 * 10**-9 * 1.00956566**value
+
+
 try:
     filament_dac = Adafruit_MCP4725.MCP4725(busnum=1, address=0x60)
     filament_dac.set_voltage(0)
@@ -32,23 +40,20 @@ ina.configure(voltage_range=ina.RANGE_16V,
               shunt_adc=ina.ADC_128SAMP)
 
 adc = ADS1115()
-filament_relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
+relay = gpiozero.OutputDevice(FILAMENT_RELAY_PIN)
 
+relay.on()
 
+filament_dac.set_voltage(4095)
 
 while True:
-    filament_relay.on()
-    filament_dac.set_voltage(4095)
-    mosfet_voltage = (adc.average(3, 1) / 32768) * 4.096
-    print("ON")
-    sleep(0.5)
-    print(f"Current: {ina.current()} MOSFET: {mosfet_voltage}")
-    sleep(1)
-
-    filament_relay.off()
-    filament_dac.set_voltage(0)
-    mosfet_voltage = (adc.average(3, 1) / 32768) * 4.096
-    print("OFF")
-    sleep(0.5)
-    print(f"Current: {ina.current()} MOSFET: {mosfet_voltage}")
-    sleep(1)
+    print(f"Current: {round(ina.current(), 0)}")
+    sleep(0.1)
+#
+#    filament_relay.off()
+#    filament_dac.set_voltage(0)
+#    print("OFF")
+#    mosfet_voltage = (adc.average(3, 1) / 32768) * 4.096
+#    sleep(0.5)
+#    print(f"Current: {ina.current()} MOSFET: {mosfet_voltage}")
+#    sleep(1)
