@@ -28,21 +28,6 @@ def system_check(XRAY):
         print("FAIL: HV PSU Not detected")
         return_value = False
 
-    #XRAY.hv(0.5)
-    #sleep(0.25)
-
-    #vout = XRAY.hv_highside.voltage()
-    #if vout < 1.0:
-    #    print("FAIL: HV Not present")
-   #     return_value = False
-
-    #high_voltage = XRAY.calculate_hv(vout)
-    #if high_voltage < HV_VOLTAGE_THRESHOLD:
-    #    print("FAIL: HV below threshold")
-    #    return_value = False
-
-    #XRAY.hv(0)
-
     # Camera
     if not XRAY.dslr.skip_system_check:
         for attempt in range(1, MAX_CAPTURE_ATTEMPTS + 1):
@@ -54,7 +39,6 @@ def system_check(XRAY):
 
             try:
                 XRAY.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
-
                 if XRAY.dslr.capture_filepath:
                     print("Recieved test image from camera")
                     break
@@ -68,8 +52,9 @@ def system_check(XRAY):
 
     return return_value
 
+
 if __name__ == "__main__":
-    XRAY = Photonic(ignore_exceptions=True, disable_led=True)
+    XRAY = Photonic(disable_led=True, direct_capture=False)
 
     if system_check(XRAY):
         print("System check passed!")

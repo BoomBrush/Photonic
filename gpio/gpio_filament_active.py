@@ -58,30 +58,25 @@ interpolation = Interpolation("assets//filament_currents.csv")
 
 relay.on()
 
-target_current = 1750
+target_current = 1500
 target = interpolation.current_to_dac(target_current)
 dac.set_voltage(target)
+mosfet_value = 2000
 
 while True:
     mosfet_current = ina.current()
-    print(mosfet_current)
-    sleep(0.1)
 
-#    mosfet_value = target_dac
-#
-#    if mosfet_current < target_current:
-#        differance = target_current - mosfet_current
-#        mosfet_value += 0
-#
-#        print(f"LESS THAN - mosfet_current: {mosfet_current}, difference: {differance}")
-#        print(ina.voltage())
-#    elif mosfet_current > target_current:
-#        differance = mosfet_current - target_current
-#        mosfet_value -= 0
-#
-#        print(f"GREATER THAN - mosfet_current: {mosfet_current}, difference: {differance}")
-#        print(ina.voltage())
+    if mosfet_current < target_current:
+        difference = target_current - mosfet_current
+        mosfet_value += 20
 
+        print(f"LESS THAN - mosfet_current: {mosfet_current}, difference: {difference}")
+    elif mosfet_current > target_current:
+        difference = mosfet_current - target_current
+        mosfet_value -= 20
 
-#    dac.set_voltage(mosfet_value)
+        print(f"GREATER THAN - mosfet_current: {mosfet_current}, difference: {difference}")
+
+    dac.set_voltage(mosfet_value)
+    sleep(0.05)
 

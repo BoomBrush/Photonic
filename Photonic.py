@@ -62,6 +62,7 @@ class Camera(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self.address = ('127.0.0.1', 6000)
+        self.direct_capture = threading.Event()
 
         self.shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         self.trigger(False)
@@ -69,8 +70,14 @@ class Camera(threading.Thread):
         self.ready = threading.Event()
         self.skip_system_check = None
 
+    def run(self):
+        if self.direct_capture.is_set():
+            self.direct()
+        else:
+            self.client()
+
     def direct(self):
-        print("Camera thread started")
+        print("Camera thread started - direct")
         self.camera = gp.Camera()
         camera_list = list(gp.Camera.autodetect())
 
@@ -99,22 +106,22 @@ class Camera(threading.Thread):
 
         print("Camera thread stopping")
 
-    def run(self):
+    def client(self):
         print("Camera thread started - server")
 
-        self.listening = True
         self.capture_filepath = None
         self.ready.clear()
 
         if self.connect(self.address):
             self.conn_client.send("skip")
-            msg = self.conn_client.recv()
-            self.skip_system_check = msg
+            self.skip_system_check = self.conn_client.recv()
             self.conn_client.send("close")
             self.conn_client.close()
 
-        if self.skip_system_check: return
-        self.image()
+        if self.skip_system_check:
+            return
+
+        self.get_image()
 
     def trigger(self, state):
         if state:
@@ -131,12 +138,10 @@ class Camera(threading.Thread):
 
         return False
 
-    def image(self):
+    def get_image(self):
         if self.connect(self.address):
             self.conn_client.send("image")
-            print("Waiting for image from camera server")
             self.capture_filepath = self.conn_client.recv()
-            print("Recieved image")
             self.conn_client.send("close")
             self.conn_client.close()
             self.ready.set()
@@ -289,7 +294,7 @@ class FilamentInterpolation():
             self.currents = []
 
         for line in self.lines:
-            row = line.decode().split(" ")
+            row = line.decode().split(",")
 
             current_value = float(row[0])
             dac_value = float(row[1][:-1])
@@ -313,7 +318,7 @@ class FilamentInterpolation():
 
 
 class Photonic():
-    def __init__(self, ignore_exceptions=False, disable_led=False):
+    def __init__(self, ignore_exceptions=False, disable_led=False, direct_capture=False):
         # At exit functions
         self.finished = False
         atexit.register(self.finish)
@@ -327,6 +332,7 @@ class Photonic():
         self.ignore_exceptions = ignore_exceptions
         self.capture_attempts = 0
         self.disable_led = disable_led
+        self.direct_capture = direct_capture
 
         # ADS1115, Filament, HV, LED, interpolate init
         self.adc = ADS1115()
@@ -335,10 +341,10 @@ class Photonic():
         self.led = LED()
         self.interpolate = FilamentInterpolation("assets//filament_currents.csv")
 
-
         # DSLR init
         try:
             self.dslr = Camera()
+            if direct_capture: self.dslr.direct_capture.set()
             self.dslr.start()
         except Exception as e:
             print("DSLR Error:", e)
@@ -412,11 +418,11 @@ class Photonic():
 
         # Get image from camera
         print("Waiting for camera capture event")
-        self.dslr.image()
         self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
+        if not self.direct_capture:
+            self.dslr.get_image()
 
         if self.dslr.capture_filepath:
-            print("Recieved image from camera")
             self.dslr.listening = False
             self.capture_attempts = 0
             # LED to green
