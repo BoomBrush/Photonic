@@ -4,7 +4,7 @@ import Photonic, sys
 import numpy, cv2
 from SystemCheck import system_check
 
-XRAY = Photonic.Photonic(ignore_exceptions=True, disable_led=True, direct_capture=False)
+XRAY = Photonic.Photonic(ignore_exceptions=True, disable_led=True, remote_capture=True)
 
 power = int(sys.argv[1])
 duration = int(sys.argv[2])
@@ -15,7 +15,7 @@ else:
     filename = "remote"
 
 if system_check(XRAY):
-    img = XRAY.capture(power, duration, 2800)
+    img = XRAY.capture(power, duration, 2500)
 
     if img:
         img.save(f"imgs/{filename}.jpg")

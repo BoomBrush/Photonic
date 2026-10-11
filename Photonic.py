@@ -62,7 +62,7 @@ class Camera(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self.address = ('127.0.0.1', 6000)
-        self.direct_capture = threading.Event()
+        self.remote_capture = threading.Event()
 
         self.shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         self.trigger(False)
@@ -71,7 +71,7 @@ class Camera(threading.Thread):
         self.skip_system_check = None
 
     def run(self):
-        if self.direct_capture.is_set():
+        if self.remote_capture.is_set():
             self.direct()
         else:
             self.client()
@@ -102,6 +102,7 @@ class Camera(threading.Thread):
 
                 self.capture_filepath = target_path
                 self.ready.set()
+                sleep(0.1)
                 self.ready.clear()
 
         print("Camera thread stopping")
@@ -115,13 +116,18 @@ class Camera(threading.Thread):
         if self.connect(self.address):
             self.conn_client.send("skip")
             self.skip_system_check = self.conn_client.recv()
+
+            if self.ready.is_set():
+                self.conn_client.send("skip-enable")
+
             self.conn_client.send("close")
             self.conn_client.close()
 
         if self.skip_system_check:
+            print("Skipping system check...")
             return
 
-        self.get_image()
+        self.client_get_image()
 
     def trigger(self, state):
         if state:
@@ -138,10 +144,11 @@ class Camera(threading.Thread):
 
         return False
 
-    def get_image(self):
+    def client_get_image(self):
         if self.connect(self.address):
             self.conn_client.send("image")
             self.capture_filepath = self.conn_client.recv()
+
             self.conn_client.send("close")
             self.conn_client.close()
             self.ready.set()
@@ -268,9 +275,6 @@ class HighVoltage():
             print("PWM out of range")
             self.pwm.value = 0
 
-    def calculate(self):
-        return round(self.power.voltage() / (ADC_R2 / (ADC_R1 + ADC_R2)) / 1_000_000, 3)
-
     #def current(self. adc_0_before, adc_1_before):
         #print(f"before_0:{before_0},after_0:{after_0},before_1:{before_1},after_1:{after_1}")
         #delta_0 = abs(before_0 - after_0)
@@ -281,6 +285,9 @@ class HighVoltage():
         #adc_0_after = self.adc.average(0, 16)
         #adc_1_after = self.adc.average(1, 16)
         #return round(self.calculate_hv_current(adc_0_before, adc_0_after, adc_1_before, adc_1_after) * 1000, 3)
+
+    def calculate(self):
+        return round(self.power.voltage() / (ADC_R2 / (ADC_R1 + ADC_R2)) / 1_000_000, 3)
 
     def estimate(self, filament_current):
        return round(5.20593227*10**-7 * 8814.52450668**(filament_current/1000), 3)
@@ -318,21 +325,21 @@ class FilamentInterpolation():
 
 
 class Photonic():
-    def __init__(self, ignore_exceptions=False, disable_led=False, direct_capture=False):
+    def __init__(self, ignore_exceptions=False, disable_led=False, remote_capture=False):
         # At exit functions
         self.finished = False
         atexit.register(self.finish)
         signal.signal(signal.SIGTERM, self.finish)
         signal.signal(signal.SIGINT, self.finish)
 
-        # Kill other Python XRAY processes
-        self.manage_python_processes()
-
         # Class variables
         self.ignore_exceptions = ignore_exceptions
         self.capture_attempts = 0
         self.disable_led = disable_led
-        self.direct_capture = direct_capture
+        self.remote_capture = remote_capture
+
+        # Kill other Python XRAY processes
+        self.manage_python_processes()
 
         # ADS1115, Filament, HV, LED, interpolate init
         self.adc = ADS1115()
@@ -344,7 +351,7 @@ class Photonic():
         # DSLR init
         try:
             self.dslr = Camera()
-            if direct_capture: self.dslr.direct_capture.set()
+            if not remote_capture: self.dslr.remote_capture.set()
             self.dslr.start()
         except Exception as e:
             print("DSLR Error:", e)
@@ -405,6 +412,11 @@ class Photonic():
         print(f"Capture started:", capture_settings)
         sleep((duration / 1000) / 2)
 
+        #adc_0_during = self.adc.average(0, 16)
+        #adc_1_during = self.adc.average(1, 16)
+        #print(f"adc_0_before:{adc_0_before}, adc_0_during:{adc_0_during}, adc_1_before:{adc_1_before}, adc_1_during:{adc_1_during}")
+
+
         # Turn camera, HV and filament off
         self.dslr.trigger(False)
         self.hv.set(0)
@@ -419,10 +431,12 @@ class Photonic():
         # Get image from camera
         print("Waiting for camera capture event")
         self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
-        if not self.direct_capture:
-            self.dslr.get_image()
+        if self.remote_capture:
+            self.dslr.client_get_image()
 
         if self.dslr.capture_filepath:
+            print("Received", self.dslr.capture_filepath)
+
             self.dslr.listening = False
             self.capture_attempts = 0
             # LED to green
@@ -431,7 +445,7 @@ class Photonic():
             # Add parameters as text at top left of picture
             img = Image.open(self.dslr.capture_filepath)
             image_draw = ImageDraw.Draw(img)
-            image_font = ImageFont.truetype("ARIAL.TTF", 36)
+            image_font = ImageFont.truetype("assets/ARIAL.TTF", 36)
             image_draw.text((40, 40), capture_settings, fill=(255, 255, 255), font=image_font)
 
             self.capture_attempts = 0
@@ -470,12 +484,13 @@ class Photonic():
 
                     if filename == "camera.py":
                         camera_script_running = True
+                        if not self.remote_capture:
+                            p.kill()
 
-        if not camera_script_running:
-            pass
-            #print("Running camera script")
-            #subprocess.run(["python", "/home/boombrush/Photonic/boot/camera.py", "&"], shell=False)
-            #print("Now running camera script")
+        if not camera_script_running and self.remote_capture:
+            print("Started remote camera thread")
+            camera_thread = subprocess.Popen(["python", "boot/camera.py"], shell=False)
+            sleep(5)
 
     # Cleanup method to make sure controls are gracefully stopped
     def finish(self):

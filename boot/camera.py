@@ -40,18 +40,20 @@ class Camera(threading.Thread):
         while True:
            self.conn = listener.accept()
 
-           print('connection accepted from', listener.last_accepted)
+           #print('connection accepted from', listener.last_accepted[0])
 
            while self.listening:
                msg = self.conn.recv()
 
                if msg == "skip":
                    self.conn.send(self.skip_system_check)
+               elif msg == "skip-enable":
+                   print("System check skip ENABLED")
+                   self.skip_system_check = True
                elif msg == "close":
                    self.conn.close()
                    break
                elif msg == "image":
-                   print("Waiting for image")
                    camera_capture_loop = True
 
                    while camera_capture_loop:
@@ -64,7 +66,6 @@ class Camera(threading.Thread):
                            cam_file.save(target_path)
 
                            self.conn.send(target_path)
-                           self.skip_system_check = True
                            sleep(0.5)
 
                            camera_capture_loop = False

@@ -48,27 +48,11 @@ except Exception:
 
 relay.on()
 
-steps = list(range(2000, 2500, 10))
+steps = list(range(2000, 3000, 1))
 
 for step in steps:
     filament_dac.set_voltage(step)
     sleep(0.1)
     print(round(ina.current(), 3), step)
-
-steps = list(range(2500, 2900, 1))
-
-for step in steps:
-    filament_dac.set_voltage(step)
-    sleep(0.1)
-    print(round(ina.current(), 3), step)
-
-steps = list(range(2900, 4000, 10))
-
-for step in steps:
-    filament_dac.set_voltage(step)
-    sleep(0.1)
-    print(round(ina.current(), 3), step)
-
-
 
 relay.off()
