@@ -36,13 +36,15 @@ class Camera(threading.Thread):
         self.skip_system_check = False
         self.listening = True
 
-    def run(self):
-        #print("Starting gphoto2 camera script")
-        #gphoto2_init = Gphoto2_init()
-        #gphoto2_init.start()
-        #sleep(10)
-        #print("Finished gphoto2 camera script")
+    def launch(self):
+        print("Starting gphoto2 camera script")
+        gphoto2_init = Gphoto2_init()
+        gphoto2_init.start()
+        sleep(10)
+        print("Finished gphoto2 camera script")
 
+    def run(self):
+        #self.launch()
         self.camera = gp.Camera()
         camera_list = list(gp.Camera.autodetect())
 
@@ -83,11 +85,11 @@ class Camera(threading.Thread):
                            cam_file.save(target_path)
 
                            self.conn.send(target_path)
-                           #sleep(0.5)
+                           sleep(0.5)
 
                            camera_capture_loop = False
                            target_path = None
-                           #os.remove("imgs/raw/" + event_data.name)
+                           os.remove("imgs/raw/" + event_data.name)
                            break
 
 if __name__ == "__main__":

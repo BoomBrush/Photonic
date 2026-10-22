@@ -17,9 +17,6 @@ hv_pwm = gpiozero.PWMOutputDevice(hv_pwm_pin)
 hv_active = gpiozero.OutputDevice(hv_active_pin)
 hv_present = gpiozero.InputDevice(hv_power_pin)
 
-HV_R1_RESISTANCE = 80_000_000
-HV_R2_RESISTANCE = 18_890
-
 
 #def calculate_hv(vout):
 #    return vout / (HV_R2_RESISTANCE / (HV_R2_RESISTANCE + HV_R1_RESISTANCE))
@@ -43,7 +40,7 @@ else:
 sleep(1)
 
 while True:
-    hv_pwm.value = 1.0
+    hv_pwm.value = 0.25
     print(f"Pin {hv_pwm_pin} set to {hv_pwm.value}")
     hv_active.on()
     print(f"Pin {hv_active_pin} HIGH")
