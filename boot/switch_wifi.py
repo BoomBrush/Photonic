@@ -36,7 +36,6 @@ while True:
     if current_state != last_state:
         if current_state == 0:
             connect_to_wifi()
-
         elif current_state == 1:
             create_access_point()
 

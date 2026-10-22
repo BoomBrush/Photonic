@@ -1,3 +1,4 @@
+
 import threading, subprocess, signal, ctypes
 import socket, requests
 import serial
@@ -14,8 +15,19 @@ from signal import pthread_kill, SIGTSTP
 from ina219 import INA219, DeviceRangeError
 from multiprocessing.connection import Listener, Client
 import Adafruit_MCP4725, Adafruit_ADS1x15
+from subprocess import Popen, PIPE
 
 import gphoto2 as gp
+
+
+class Gphoto2_init(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+
+    def run(self):
+        process = Popen(['gphoto2', '--capture-tethered'])
+        sleep(5)
+        process.kill()
 
 
 class Camera(threading.Thread):
@@ -25,6 +37,12 @@ class Camera(threading.Thread):
         self.listening = True
 
     def run(self):
+        #print("Starting gphoto2 camera script")
+        #gphoto2_init = Gphoto2_init()
+        #gphoto2_init.start()
+        #sleep(10)
+        #print("Finished gphoto2 camera script")
+
         self.camera = gp.Camera()
         camera_list = list(gp.Camera.autodetect())
 
@@ -39,7 +57,6 @@ class Camera(threading.Thread):
 
         while True:
            self.conn = listener.accept()
-
            #print('connection accepted from', listener.last_accepted[0])
 
            while self.listening:
@@ -62,16 +79,17 @@ class Camera(threading.Thread):
                        if event_type == gp.GP_EVENT_FILE_ADDED:
                            cam_file = self.camera.file_get(event_data.folder, event_data.name, gp.GP_FILE_TYPE_NORMAL)
                            target_path = os.path.join("imgs/raw", event_data.name)
-                           print("Sending", target_path)
+                           #print("Sending", target_path)
                            cam_file.save(target_path)
 
                            self.conn.send(target_path)
-                           sleep(0.5)
+                           #sleep(0.5)
 
                            camera_capture_loop = False
-                           os.remove("imgs/raw/" + event_data.name)
+                           target_path = None
+                           #os.remove("imgs/raw/" + event_data.name)
                            break
 
 if __name__ == "__main__":
     dslr = Camera()
-    dslr.start()
+    #dslr.start()

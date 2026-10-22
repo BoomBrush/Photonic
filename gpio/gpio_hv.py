@@ -17,7 +17,7 @@ hv_pwm = gpiozero.PWMOutputDevice(hv_pwm_pin)
 hv_active = gpiozero.OutputDevice(hv_active_pin)
 hv_present = gpiozero.InputDevice(hv_power_pin)
 
-HV_R1_RESISTANCE = 69_380_000
+HV_R1_RESISTANCE = 80_000_000
 HV_R2_RESISTANCE = 18_890
 
 
@@ -40,7 +40,7 @@ if hv_present.value == 1:
 else:
     print("WARNING: HV PSU NOT DETECTED")
 
-sleep(5)
+sleep(1)
 
 while True:
     hv_pwm.value = 1.0

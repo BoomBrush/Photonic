@@ -6,10 +6,10 @@ XRAY = Photonic.Photonic()
 
 if system_check(XRAY):
     print("System check passed. Proceeding...")
-    img = XRAY.capture(75, 2000) # HV Power (%), Time (ms)
+    scan = XRAY.capture(75, 2000) # HV Power (%), Time (ms)
 
-    if img:
-        img.save("imgs/SingleScan.jpg")
+    if scan.img:
+        scan.img.save("imgs/SingleScan.jpg")
         print("Image saved")
     else:
         print("Image failed")

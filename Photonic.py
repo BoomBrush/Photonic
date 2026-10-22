@@ -21,17 +21,17 @@ import gphoto2 as gp
 from LED import LED
 
 # Pins
-CAMERA_SHUTTER_PIN = 1
+CAMERA_SHUTTER_PIN = 25
 FILAMENT_RELAY_PIN = 0
 
 HV_PRESENT_PIN = 9
-HV_ACTIVE_PIN = 26
+HV_ENABLE_PIN = 26
 HV_PWM_PIN = 5
 
 # I2C
 I2C_BUS = 1
-I2C_FILAMENT_ADDRESS = 0x40
-I2C_HIGHVOLTAGE_ADDRESS = 0x41
+I2C_HIGHVOLTAGE_ADDRESS = 0x40
+I2C_FILAMENT_ADDRESS = 0x41
 I2C_ADC_ADDRESS = 0x48
 I2C_DAC_ADDRESS_1 = 0x60
 I2C_DAC_ADDRESS_2 = 0x61
@@ -43,7 +43,8 @@ ADC_MAX_VOLTAGE_16 = 0.256
 ADC_SAMPLES = 10
 ADC_SMALLEST = ADC_MAX_VOLTAGE_16 / ADC_BIT_DEPTH
 ADC_R1 = 80_000_000
-ADC_R2 = 47 / 5
+ADC_R2 = 4670
+ADC_R_VDROP = 47 / 5
 ADC_MAX = 4095
 
 # Absolute limits / definitions
@@ -53,16 +54,21 @@ FILAMENT_CURRENT_THRESHOLD = 1.00
 
 HV_VOLTAGE_THRESHOLD = 1000
 CAMERA_TIMEOUT = 10
-MAX_CAPTURE_ATTEMPTS = 3
+MAX_CAPTURE_ATTEMPTS = 5
 
 KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py", "-m", "camera.py"]
+#INTERPOLATE_FILEPATH = "assets//filament_currents.csv"
+
+# Direct / Remote capture options
+DIRECT_CAPTURE = False
+REMOTE_CAPTURE = True
 
 
 class Camera(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self.address = ('127.0.0.1', 6000)
-        self.remote_capture = threading.Event()
+        self.capture_method = False
 
         self.shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         self.trigger(False)
@@ -71,13 +77,13 @@ class Camera(threading.Thread):
         self.skip_system_check = None
 
     def run(self):
-        if self.remote_capture.is_set():
-            self.direct()
-        else:
-            self.client()
+        if self.capture_method == REMOTE_CAPTURE:
+            self.remote_mode()
+        elif self.capture_method == DIRECT_CAPTURE:
+            self.direct_mode()
 
-    def direct(self):
-        print("Camera thread started - direct")
+    def direct_mode(self):
+        print("Camera thread started - direct capture mode")
         self.camera = gp.Camera()
         camera_list = list(gp.Camera.autodetect())
 
@@ -107,8 +113,8 @@ class Camera(threading.Thread):
 
         print("Camera thread stopping")
 
-    def client(self):
-        print("Camera thread started - server")
+    def remote_mode(self):
+        print("Camera thread started - remote capture mode")
 
         self.capture_filepath = None
         self.ready.clear()
@@ -122,6 +128,8 @@ class Camera(threading.Thread):
 
             self.conn_client.send("close")
             self.conn_client.close()
+        else:
+            print("Connection failed")
 
         if self.skip_system_check:
             print("Skipping system check...")
@@ -199,6 +207,9 @@ class ADS1115():
     def __init__(self):
         self.ads1115 = Adafruit_ADS1x15.ADS1115(address=I2C_ADC_ADDRESS, busnum=I2C_BUS)
 
+    def get(self, channel, gain):
+        return self.ads1115.read_adc(channel, gain)
+
     def average(self, channel, gain):
         sum = 0
 
@@ -221,7 +232,6 @@ class Filament(threading.Thread):
             self.dac.set_voltage(0)
 
         self.power = PowerMonitor(I2C_FILAMENT_ADDRESS)
-
         self.enable = threading.Event()
         self.current = 0
 
@@ -258,7 +268,7 @@ class Filament(threading.Thread):
 class HighVoltage():
     def __init__(self):
         self.present = gpiozero.InputDevice(HV_PRESENT_PIN)
-        self.enable = gpiozero.OutputDevice(HV_ACTIVE_PIN)
+        self.enable = gpiozero.OutputDevice(HV_ENABLE_PIN)
         self.pwm = gpiozero.PWMOutputDevice(HV_PWM_PIN)
 
         self.power = PowerMonitor(I2C_HIGHVOLTAGE_ADDRESS)
@@ -275,25 +285,28 @@ class HighVoltage():
             print("PWM out of range")
             self.pwm.value = 0
 
-    #def current(self. adc_0_before, adc_1_before):
-        #print(f"before_0:{before_0},after_0:{after_0},before_1:{before_1},after_1:{after_1}")
-        #delta_0 = abs(before_0 - after_0)
-        #delta_1 = abs(before_1 - after_1)
-        #delta = abs(delta_0 - delta_1)
-        #return (delta / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_16
+    def current(self, adc_0_before, adc_1_before, adc_0_during, adc_1_during):
+        #print(f"adc_0_before:{self.adc_0_before}, adc_0_during:{self.adc_0_during}, adc_1_before:{self.adc_1_before}, adc_1_during:{self.adc_1_during}")
+        delta_0 = abs(adc_0_before - adc_0_during)
+        delta_1 = abs(adc_1_before - adc_1_during)
 
-        #adc_0_after = self.adc.average(0, 16)
-        #adc_1_after = self.adc.average(1, 16)
-        #return round(self.calculate_hv_current(adc_0_before, adc_0_after, adc_1_before, adc_1_after) * 1000, 3)
+        v_drop_0 = (delta_0 / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
+        v_drop_1 = (delta_1 / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
+        v_drop = abs(v_drop_0 - v_drop_1)
 
-    def calculate(self):
+        filament_current = v_drop / ADC_R_VDROP
+
+        return filament_current
+
+    def voltage(self):
         return round(self.power.voltage() / (ADC_R2 / (ADC_R1 + ADC_R2)) / 1_000_000, 3)
 
-    def estimate(self, filament_current):
-       return round(5.20593227*10**-7 * 8814.52450668**(filament_current/1000), 3)
+    def estimate_voltage(self, filament_current):
+        return round(5.20593227*10**-7 * 8814.52450668**(filament_current/1000), 3)
 
 
-class FilamentInterpolation():
+'''
+class Interpolation():
     def __init__(self, filename):
         with open(filename,'rb') as file:
             self.lines = file.readlines()
@@ -322,10 +335,20 @@ class FilamentInterpolation():
 
             if self.currents[i] > value:
                 return (self.dacs[i] + self.dacs[i-1]) / 2
+'''
+
+class ImageObject():
+    def __init__(self, img, filament_current, filament_power, mosfet_voltage, hv_current_estimate, hv_voltage):
+        self.img = img
+        self.filament_current = filament_current
+        self.filament_power = filament_power
+        self.mosfet_voltage = mosfet_voltage
+        self.hv_current_estimate = hv_current_estimate
+        self.hv_voltage = hv_voltage
 
 
 class Photonic():
-    def __init__(self, ignore_exceptions=False, disable_led=False, remote_capture=False):
+    def __init__(self, ignore_exceptions=False, disable_led=False, capture_method=DIRECT_CAPTURE):
         # At exit functions
         self.finished = False
         atexit.register(self.finish)
@@ -336,32 +359,16 @@ class Photonic():
         self.ignore_exceptions = ignore_exceptions
         self.capture_attempts = 0
         self.disable_led = disable_led
-        self.remote_capture = remote_capture
+        self.capture_method = capture_method
 
         # Kill other Python XRAY processes
         self.manage_python_processes()
 
         # ADS1115, Filament, HV, LED, interpolate init
-        self.adc = ADS1115()
         self.filament = Filament()
+        self.adc = ADS1115()
         self.hv = HighVoltage()
         self.led = LED()
-        self.interpolate = FilamentInterpolation("assets//filament_currents.csv")
-
-        # DSLR init
-        try:
-            self.dslr = Camera()
-            if not remote_capture: self.dslr.remote_capture.set()
-            self.dslr.start()
-        except Exception as e:
-            print("DSLR Error:", e)
-
-        #self.dslr.ready.wait(CAMERA_TIMEOUT)
-
-        # DSLR check
-        #if not self.dslr.detected:
-        #    if not ignore_exceptions: raise Exception("WARNING: DSLR NOT INITIALIZED")
-        #    else: print("WARNING: DSLR NOT INITIALIZED")
 
         # HV PSU powered check
         if self.hv.present.value != 1:
@@ -373,6 +380,21 @@ class Photonic():
             if not ignore_exceptions: raise Exception("WARNING: NO POWER TO FILAMENT")
             else: print("WARNING: NO POWER TO FILAMENT")
 
+        # DSLR init
+        try:
+            self.dslr = Camera()
+            self.dslr.capture_method = capture_method
+            self.dslr.start()
+        except Exception as e:
+            print("DSLR Error:", e)
+
+        #self.dslr.ready.wait(CAMERA_TIMEOUT)
+
+        # DSLR check
+        #if not self.dslr.detected:
+        #    if not ignore_exceptions: raise Exception("WARNING: DSLR NOT INITIALIZED")
+        #    else: print("WARNING: DSLR NOT INITIALIZED")
+
     def capture(self, power, duration, filament_power = ADC_MAX):
         self.capture_attempts += 1
 
@@ -380,8 +402,8 @@ class Photonic():
         if not self.disable_led: self.led.set(1, 1)
 
         # Grab values before capture
-        adc_0_before = self.adc.average(0, 16)
-        adc_1_before = self.adc.average(1, 16)
+        adc_0_before = self.adc.get(0, 1)
+        adc_1_before = self.adc.get(1, 1)
 
         # Wait for filament to heat up
         self.filament.set(True, filament_power)
@@ -394,44 +416,48 @@ class Photonic():
         # LED to red
         if not self.disable_led: self.led.set(1, 0)
 
-        # Wait for set period
-        sleep((duration / 1000) / 2)
+        print("Capture started")
 
-        # get filament current
+        # Wait
+        sleep(duration / 2000)
+
+        # Get filament current
         filament_current = self.filament.power.current()
 
-        # MOSFET voltage
-        mosfet_voltage = self.filament.mosfet_voltage(self.adc.average(3, 1))
+        # Get hv current
+        adc_0_during = self.adc.get(0, 1)
+        adc_1_during = self.adc.get(1, 1)
+        hv_current = round(self.hv.current(adc_0_before, adc_1_before, adc_0_during, adc_1_during), 3)
 
-        # Get hv current and voltage
-        hv_current_estimate = self.hv.estimate(filament_current)
-        hv_voltage = self.hv.calculate()
+        # Get hv voltage
+        hv_voltage = self.hv.voltage()
 
-        # Wait for set duration minus already elapsed time
-        capture_settings = f"{power}% {duration}ms {int(filament_current)}mA ~ {filament_power} {mosfet_voltage}V ~ E{hv_current_estimate}mA {hv_voltage}kV"
-        print(f"Capture started:", capture_settings)
-        sleep((duration / 1000) / 2)
-
-        #adc_0_during = self.adc.average(0, 16)
-        #adc_1_during = self.adc.average(1, 16)
-        #print(f"adc_0_before:{adc_0_before}, adc_0_during:{adc_0_during}, adc_1_before:{adc_1_before}, adc_1_during:{adc_1_during}")
-
+        # Wait
+        sleep(duration / 2000)
 
         # Turn camera, HV and filament off
         self.dslr.trigger(False)
         self.hv.set(0)
         self.filament.set(False)
+        stop_time = time.time()
+
+        # MOSFET voltage
+        mosfet_voltage = self.filament.mosfet_voltage(self.adc.average(3, 1))
+
+        # High voltage current estimate
+        hv_current_estimate = self.hv.estimate_voltage(filament_current)
+
+        capture_settings = f"{power}% {duration}ms {int(filament_current)}mA ~ {filament_power} {mosfet_voltage}V ~ E{hv_current_estimate}mA A{hv_current}mA {hv_voltage}kV"
+        print(f"Capture finished: " + capture_settings)
 
         # LED to yellow
         if not self.disable_led: self.led.set(1, 1)
 
-        # If camera not present, return
-        #if not self.dslr.detected: return False
-
         # Get image from camera
-        print("Waiting for camera capture event")
+        print("Waiting for camera capture event...")
         self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
-        if self.remote_capture:
+
+        if self.capture_method == DIRECT_CAPTURE:
             self.dslr.client_get_image()
 
         if self.dslr.capture_filepath:
@@ -449,15 +475,15 @@ class Photonic():
             image_draw.text((40, 40), capture_settings, fill=(255, 255, 255), font=image_font)
 
             self.capture_attempts = 0
-            return img
+
+            return ImageObject(img, filament_current, filament_power, mosfet_voltage, hv_current_estimate, hv_voltage)
 
         print("Did not receive capture after timeout period. Retrying...")
 
-        if self.capture_attempts < MAX_CAPTURE_ATTEMPTS: return self.capture(power, duration)
+        if self.capture_attempts < MAX_CAPTURE_ATTEMPTS: return self.capture(power, duration, filament_power)
 
         # Reached max capture attempts
         print("Maximum capture attempts reached")
-        if not self.disable_led: self.led.set(0, 0)
         return None
 
     def manage_python_processes(self):
@@ -479,18 +505,77 @@ class Photonic():
                     filename = cmd_line[1].split("/")[-1]
 
                     if filename not in KILL_PROCESS_EXCEPTIONS:
-                        print("Killing script:", ' '.join(cmd_line))
                         p.kill()
 
                     if filename == "camera.py":
-                        camera_script_running = True
-                        if not self.remote_capture:
+                        if self.capture_method == DIRECT_CAPTURE:
+                            print("Killing gphoto2 camera script")
                             p.kill()
+                        else:
+                            camera_script_running = True
 
-        if not camera_script_running and self.remote_capture:
-            print("Started remote camera thread")
-            camera_thread = subprocess.Popen(["python", "boot/camera.py"], shell=False)
-            sleep(5)
+        if self.capture_method == REMOTE_CAPTURE and not camera_script_running:
+            camera_thread = subprocess.Popen(["python", "/home/boombrush/Photonic/boot/camera.py"])
+            sleep(1)
+
+    def system_check(self):
+        return_value = True
+
+        sleep(0.1)
+        if self.dslr.skip_system_check:
+            return True
+
+        # Filament
+        print("Checking filament voltage")
+        if self.filament.power.voltage() < FILAMENT_VOLTAGE_THRESHOLD:
+            print("FAIL: Filament voltage not present")
+            return_value = False
+
+        self.filament.set(True)
+        sleep(0.5)
+        print("Checking filament current")
+        if self.filament.power.current() < FILAMENT_CURRENT_THRESHOLD:
+            print("FAIL: Filament no load")
+            self.filament.set(False)
+            return_value = False
+
+        self.filament.set(False)
+
+        # HV
+        print("Checking HV")
+        if self.hv.present.value != 1:
+            print("FAIL: HV PSU Not detected")
+            return_value = False
+
+        # Camera
+        for attempt in range(1, MAX_CAPTURE_ATTEMPTS + 1):
+            print(f"Checking camera attempt {attempt}/{MAX_CAPTURE_ATTEMPTS}")
+
+            self.dslr.trigger(True)
+            sleep(0.25)
+            self.dslr.trigger(False)
+
+            try:
+                self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
+                if self.dslr.capture_filepath:
+                    print("Recieved", self.dslr.capture_filepath)
+                    break
+                else:
+                    print("FAIL: DSLR Capture")
+
+                if attempt == MAX_CAPTURE_ATTEMPTS:
+                    return_value = False
+            except AttributeError:
+                return_value = False
+
+        if self.capture_method and return_value:
+            if self.dslr.connect(self.dslr.address):
+                self.dslr.conn_client.send("skip-enable")
+                self.dslr.conn_client.send("close")
+                self.dslr.conn_client.close()
+
+        return return_value
+
 
     # Cleanup method to make sure controls are gracefully stopped
     def finish(self):

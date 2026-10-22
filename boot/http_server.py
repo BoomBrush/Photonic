@@ -59,7 +59,7 @@ class handler(BaseHTTPRequestHandler):
         #out, err = p.communicate()
         #print(out)
 
-        self.wfile.write(bytes(html + '<img width="100%" src="http://' + ipaddr + ':8001/imgs/remote.jpg">' + html_end, "utf8"))
+        self.wfile.write(bytes(html + '<img width="100%" src="http://' + ipaddr + ':8001/Photonic/imgs/remote.jpg">' + html_end, "utf8"))
 
 
 
