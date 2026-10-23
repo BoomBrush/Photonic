@@ -112,7 +112,6 @@ class Camera(threading.Thread):
 
         self.image.save(filepath)
         os.remove(TMP_IMAGE_FILEPATH)
-        self.ready.clear()
 
 
 class PowerMonitor():
@@ -467,7 +466,7 @@ class Photonic():
         print("Checking filament current")
         filament_current = self.filament.power.current()
         if filament_current < FILAMENT_CURRENT_THRESHOLD:
-            print("FAIL: Filament no load")
+            print("FAIL: Filament no load:", filament_current)
             self.filament.set(False)
             return_value = False
 
@@ -491,6 +490,7 @@ class Photonic():
                 self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
 
                 if self.dslr.ready.is_set():
+                    self.dslr.ready.clear()
                     break
                 else:
                     print("FAIL: DSLR Capture")
@@ -499,12 +499,6 @@ class Photonic():
                     return_value = False
             except AttributeError:
                 return_value = False
-
-        #if self.capture_method and return_value:
-        #    if self.dslr.connect(self.dslr.address):
-        #        self.dslr.conn_client.send("skip-enable")
-        #        self.dslr.conn_client.send("close")
-        #        self.dslr.conn_client.close()
 
         return return_value
 
