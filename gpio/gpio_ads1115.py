@@ -2,7 +2,7 @@
 # the screen.
 # Author: Tony DiCola
 # License: Public Domain
-import time
+from time import sleep
 
 # Import the ADS1x15 module.
 import Adafruit_ADS1x15
@@ -27,20 +27,9 @@ adc = Adafruit_ADS1x15.ADS1115(address=0x48, busnum=1)
 #  -   8 = +/-0.512V
 #  -  16 = +/-0.256V
 # See table 3 in the ADS1015/ADS1115 datasheet for more info on gain.
+
 GAIN = 1
-R1 = 80_000_000
-R2 = 4700
 
 while True:
-    #adc_avg = 0
-    #for _ in range(50):
-    #    adc_read = adc.read_adc(0, gain=GAIN)
-
-    #    adc_avg += adc_read
-
-    #adc_avg = adc_avg / 5
-
-    adc_read = adc.read_adc(1, gain=GAIN)
-    voltage = (adc_read / 32768) * 4.096
-    hv_voltage = voltage / (R2/(R1+R2))
-    print(hv_voltage)
+    print((adc.read_adc(0, GAIN)/32768)*4.096, (adc.read_adc(1, GAIN)/32768)*4.096, (adc.read_adc(2, GAIN)/32768)*4.096, (adc.read_adc(3, GAIN)/32768)*4.096)
+    sleep(0.1)

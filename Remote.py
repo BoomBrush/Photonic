@@ -3,7 +3,7 @@ from PIL import ImageDraw, ImageFont
 import Photonic, sys
 import numpy, cv2
 
-XRAY = Photonic.Photonic(ignore_exceptions=True, disable_led=True, capture_method=Photonic.DIRECT_CAPTURE)
+XRAY = Photonic.Photonic(capture_method=Photonic.DIRECT_CAPTURE)
 
 power = int(sys.argv[1])
 duration = int(sys.argv[2])

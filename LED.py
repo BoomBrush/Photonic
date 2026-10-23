@@ -8,22 +8,44 @@ LED_RED_PIN = 20
 LED_GREEN_PIN = 16
 
 
+class Flashing(threading.Thread):
+    def __init__(self, led, r, g, delay=0.5):
+        threading.Thread.__init__(self)
+        self.led = led
+        self.r = r
+        self.g = g
+        self.delay = delay
+
+    def run(self):
+        self.led.blinking = True
+
+        while self.led.blinking:
+            self.led.set(self.r, self.g, flash=True)
+            sleep(self.delay)
+            self.led.set(0, 0, flash=True)
+            sleep(self.delay)
+
+
 class LED(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
+        self.blinking = False
+        self.running = True
 
     def run(self):
         self.led_r = gpiozero.PWMOutputDevice(LED_RED_PIN)
         self.led_g = gpiozero.OutputDevice(LED_GREEN_PIN)
 
-        address = ('127.0.0.1', 5000)     # family is deduced to be 'AF_INET'
+        address = ('127.0.0.1', 4000)     # family is deduced to be 'AF_INET'
 
-        while True:
+        while self.running:
+            print("LED")
             listener = Listener(address, authkey=b'boombrush')
             self.conn = listener.accept()
             print('connection accepted from', listener.last_accepted)
 
-            while True:
+            while self.running:
+                print("LED")
                 msg = self.conn.recv()
 
                 if len(msg) == 2:
@@ -43,8 +65,11 @@ class LED(threading.Thread):
 
             listener.close()
 
-    def set(self, r, g, turn_off_period=0):
+        print("LED thread closing")
+
+    def set(self, r, g, turn_off_period=0, flash=False):
         self.connect()
+        if not flash: self.blinking = False
 
         if turn_off_period == 0:
             self.conn_client.send([r, g])
@@ -53,8 +78,19 @@ class LED(threading.Thread):
 
         self.disconnect()
 
+    def flash(self, r, g, delay=0.1):
+        self.connect()
+        self.blinking = True
+
+        self.flash_object = Flashing(self, r, g, delay)
+        self.flash_object.start()
+
+        self.disconnect()
+
     def connect(self):
-        address = ('127.0.0.1', 5000)
+        sleep(0.1)
+
+        address = ('127.0.0.1', 4000)
         try:
             self.conn_client = Client(address, authkey=b'boombrush')
         except Exception as e:
@@ -80,21 +116,38 @@ if __name__ == "__main__":
     led = LED()
     led.start()
 
-    sleep(1)
+    led.set(1, 0)
+    sleep(2)
+    led.set(1, 1)
+    sleep(2)
+    led.set(0, 1)
+    sleep(2)
 
-    led.connect()
+    led.flash(1, 0)
+    sleep(5)
+    led.set(0, 0)
 
-    led.conn_client.send("msg,abc")
-    print("Sent message")
+    led.set(1, 0)
+    sleep(5)
+    led.set(1, 1)
+    sleep(5)
+    led.set(0, 1)
+    sleep(5)
+    led.set(0, 0)
+    sleep(5)
+
+
+
+    #led.conn_client.send("msg,abc")
+    #print("Sent message")
     #recieved = led.conn_client.recv()
     #print("Recieved message")
     #print(recieved)
-    sleep(1)
-    print("post sleep")
-    msg = led.conn.recv()
-    print("client recieved:", msg)
+    #sleep(1)
+    #print("post sleep")
+    #msg = led.conn.recv()
+    #print("client recieved:", msg)
 
-    led.disconnect()
 
 
     '''

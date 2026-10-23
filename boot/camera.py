@@ -44,7 +44,6 @@ class Camera(threading.Thread):
         print("Finished gphoto2 camera script")
 
     def run(self):
-        #self.launch()
         self.camera = gp.Camera()
         camera_list = list(gp.Camera.autodetect())
 
@@ -59,7 +58,7 @@ class Camera(threading.Thread):
 
         while True:
            self.conn = listener.accept()
-           #print('connection accepted from', listener.last_accepted[0])
+           print('connection accepted from', listener.last_accepted[0])
 
            while self.listening:
                msg = self.conn.recv()
@@ -94,4 +93,4 @@ class Camera(threading.Thread):
 
 if __name__ == "__main__":
     dslr = Camera()
-    #dslr.start()
+#    dslr.start()

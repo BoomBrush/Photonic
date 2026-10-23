@@ -18,15 +18,15 @@ import Adafruit_MCP4725, Adafruit_ADS1x15
 
 import gphoto2 as gp
 
-from LED import LED
+from LED import LED, Flashing
 
 # Pins
 CAMERA_SHUTTER_PIN = 25
 FILAMENT_RELAY_PIN = 0
 
 HV_PRESENT_PIN = 9
-HV_ENABLE_PIN = 26
-HV_PWM_PIN = 5
+HV_ENABLE_PIN = 19
+HV_PWM_PIN = 13
 
 # I2C
 I2C_BUS = 1
@@ -65,10 +65,10 @@ REMOTE_CAPTURE = True
 
 
 class Camera(threading.Thread):
-    def __init__(self):
+    def __init__(self, capture_method):
         threading.Thread.__init__(self)
         self.address = ('127.0.0.1', 6000)
-        self.capture_method = False
+        self.capture_method = capture_method
 
         self.shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         self.trigger(False)
@@ -99,7 +99,9 @@ class Camera(threading.Thread):
         self.listening = True
 
         while self.listening:
+            print("Waiting for camera event")
             event_type, event_data = self.camera.wait_for_event(CAMERA_TIMEOUT * 1000)
+            print("Event passed")
 
             if event_type == gp.GP_EVENT_FILE_ADDED:
                 cam_file = self.camera.file_get(event_data.folder, event_data.name, gp.GP_FILE_TYPE_NORMAL)
@@ -108,8 +110,8 @@ class Camera(threading.Thread):
 
                 self.capture_filepath = target_path
                 self.ready.set()
-                sleep(0.1)
-                self.ready.clear()
+#                sleep(0.1)
+#                self.ready.clear()
 
         print("Camera thread stopping")
 
@@ -164,8 +166,6 @@ class Camera(threading.Thread):
 
 class PowerMonitor():
     def __init__(self, address):
-        self.disabled = False
-
         try:
             self.ina = INA219(shunt_ohms = 0.1,
                               max_expected_amps = 3.0,
@@ -179,28 +179,15 @@ class PowerMonitor():
 
         except OSError:
             raise Exception("WARNING: INA219 ERROR")
-            self.disabled = True
 
     def current(self):
-        if self.disabled: return 0.0
-
         try:
             return int(self.ina.current())
         except DeviceRangeError:
             raise Exception("INA219 current range error")
 
     def voltage(self):
-        if self.disabled: return 0.0
-
         return self.ina.voltage()
-
-    def power(self):
-        if self.disabled: return 0.0
-
-        try:
-            return int(self.ina.power())
-        except DeviceRangeError:
-            raise Exception("INA219 power range error")
 
 
 class ADS1115():
@@ -285,6 +272,7 @@ class HighVoltage():
             print("PWM out of range")
             self.pwm.value = 0
 
+    # Not currently working
     def current(self, adc_0_before, adc_1_before, adc_0_during, adc_1_during):
         #hv_current = round(self.hv.current(adc_0_before, adc_1_before, adc_0_during, adc_1_during), 3)
         #print(f"adc_0_before:{adc_0_before},adc_1_before:{adc_1_before},adc_0_during:{adc_0_during},adc_1_during:{adc_1_during}")
@@ -302,11 +290,7 @@ class HighVoltage():
     def voltage(self, voltage_adc):
         converted_voltage = (voltage_adc / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
 
-        output = round(1000 * converted_voltage / (ADC_R2 / (ADC_R1 + ADC_R2)) / 1_000_000, 3)
-
-        print(f"voltage_adc:{voltage_adc}, converted_voltage:{converted_voltage}, output:{output}")
-
-        return output
+        return round(1000 * converted_voltage / (ADC_R2 / (ADC_R1 + ADC_R2)) / 1_000_000, 3)
 
     def estimate_voltage(self, filament_current):
         return round(5.20593227*10**-7 * 8814.52450668**(filament_current/1000), 3)
@@ -392,18 +376,12 @@ class Photonic():
 
         # DSLR init
         try:
-            self.dslr = Camera()
-            self.dslr.capture_method = capture_method
+            self.dslr = Camera(capture_method)
             self.dslr.start()
+            sleep(1)
         except Exception as e:
             print("DSLR Error:", e)
 
-        #self.dslr.ready.wait(CAMERA_TIMEOUT)
-
-        # DSLR check
-        #if not self.dslr.detected:
-        #    if not ignore_exceptions: raise Exception("WARNING: DSLR NOT INITIALIZED")
-        #    else: print("WARNING: DSLR NOT INITIALIZED")
 
     def capture(self, power, duration, filament_power = ADC_MAX):
         self.capture_attempts += 1
@@ -411,9 +389,9 @@ class Photonic():
         # LED to yellow
         if not self.disable_led: self.led.set(1, 1)
 
-        # Grab values before capture
-        adc_0_before = self.adc.average(0, 1)
-        adc_1_before = self.adc.average(1, 1)
+        # Grab filament current before capture
+        adc_0_before = self.adc.average(0, 2)
+        adc_current_1_before = self.adc.average(1, 2)
 
         # Wait for filament to heat up
         self.filament.set(True, filament_power)
@@ -440,8 +418,8 @@ class Photonic():
                 filament_current = self.filament.power.current()
 
                 # Get hv current
-                adc_0_during = self.adc.get(0, 1)
-                adc_1_during = self.adc.get(1, 1)
+                adc_0_during = self.adc.get(0, 2)
+                adc_1_during = self.adc.get(1, 2)
                 hv_current = round(self.hv.current(adc_0_before, adc_1_before, adc_0_during, adc_1_during), 3)
 
                 # Get hv voltage
@@ -452,7 +430,7 @@ class Photonic():
 
                 f.write(f"{(time.time() - start_time) * 1000},{filament_current},{hv_current},{hv_voltage},{mosfet_voltage},{adc_0_before},{adc_1_before},{adc_0_during},{adc_1_during}\n")
 
-                if (time.time() - start_time) > (duration / 1000): break
+                #if (time.time() - start_time) > (duration / 1000): break
 
         # Turn camera, HV and filament off
         self.dslr.trigger(False)
@@ -460,10 +438,7 @@ class Photonic():
         self.filament.set(False)
         stop_time = time.time()
 
-        # High voltage current estimate
-        hv_current_estimate = self.hv.estimate_voltage(filament_current)
-
-        capture_settings = f"{power}% {duration}ms {int(filament_current)}mA ~ {filament_power} {mosfet_voltage}V ~ E{hv_current_estimate}mA A{hv_current}mA {hv_voltage}kV"
+        capture_settings = f"{power}% {duration}ms {int(filament_current)}mA ~ {filament_power} {mosfet_voltage}V ~ {hv_voltage}kV"
         print(f"Capture finished: " + capture_settings)
 
         # LED to yellow
@@ -473,10 +448,10 @@ class Photonic():
         print("Waiting for camera capture event...")
         self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
 
-        if self.capture_method == DIRECT_CAPTURE:
-            self.dslr.client_get_image()
+        #if self.capture_method == DIRECT_CAPTURE:
+        #    self.dslr.client_get_image()
 
-        if self.dslr.capture_filepath:
+        if self.dslr.ready.is_set():
             print("Received", self.dslr.capture_filepath)
 
             self.dslr.listening = False
@@ -591,8 +566,32 @@ class Photonic():
                 self.dslr.conn_client.send("close")
                 self.dslr.conn_client.close()
 
-        return return_value
+        print("LED testing")
 
+        self.led.set(1, 0)
+        sleep(2)
+        self.led.set(1, 1)
+        sleep(2)
+        self.led.set(0, 1)
+        sleep(2)
+        self.led.set(0, 0)
+        sleep(2)
+
+        self.led.flash(1, 0)
+        sleep(5)
+        self.led.set(0, 0)
+        sleep(5)
+
+        self.led.flash(1, 1)
+        sleep(5)
+        self.led.set(0, 0)
+        sleep(5)
+
+        self.led.flash(0, 1)
+        sleep(5)
+        self.led.set(0, 0)
+
+        return return_value
 
     # Cleanup method to make sure controls are gracefully stopped
     def finish(self):
@@ -605,6 +604,7 @@ class Photonic():
             self.hv.set(0)
             self.dslr.trigger(False)
             self.finished = True
+            self.led.running = False
         except Exception:
             print("Exception in finish method!")
 
