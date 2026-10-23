@@ -20,16 +20,6 @@ from subprocess import Popen, PIPE
 import gphoto2 as gp
 
 
-class Gphoto2_init(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
-
-    def run(self):
-        process = Popen(['gphoto2', '--capture-tethered'])
-        sleep(5)
-        process.kill()
-
-
 class Camera(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)

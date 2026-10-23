@@ -67,14 +67,15 @@ if __name__ == "__main__":
 
     dslr.start()
 
-    dslr.trigger(True)
-    sleep(1)
-    dslr.trigger(False)
+    while True:
+        dslr.trigger(True)
+        sleep(1)
+        dslr.trigger(False)
 
-    dslr.ready.wait(10)
+        dslr.ready.wait(10)
 
-    if dslr.ready.is_set():
-        print("Saving image")
-        dslr.save("imgs/dslr.jpg")
-    else:
-        print("Did not capture")
+        if dslr.ready.is_set():
+            print("Saving image")
+            dslr.save("imgs/dslr.jpg")
+        else:
+            print("Did not capture")

@@ -16,6 +16,7 @@ else:
 
 if XRAY.system_check():
     scan = XRAY.capture(power, duration)
+
     print("Duration:", scan.actual_duration)
 
     if scan:

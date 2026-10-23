@@ -30,8 +30,8 @@ HV_PWM_PIN = 13
 
 # I2C
 I2C_BUS = 1
-I2C_HIGHVOLTAGE_ADDRESS = 0x40
-I2C_FILAMENT_ADDRESS = 0x41
+I2C_HIGHVOLTAGE_ADDRESS = 0x41
+I2C_FILAMENT_ADDRESS = 0x40
 I2C_ADC_ADDRESS = 0x48
 I2C_DAC_ADDRESS_1 = 0x60
 I2C_DAC_ADDRESS_2 = 0x61
@@ -39,6 +39,7 @@ I2C_DAC_ADDRESS_2 = 0x61
 # ADC VALUES
 ADC_BIT_DEPTH = 32768
 ADC_MAX_VOLTAGE_1 = 4.096
+ADC_MAX_VOLTAGE_8 = 0.512
 ADC_MAX_VOLTAGE_16 = 0.256
 ADC_SAMPLES = 10
 ADC_SMALLEST = ADC_MAX_VOLTAGE_16 / ADC_BIT_DEPTH
@@ -57,8 +58,9 @@ CAMERA_TIMEOUT = 10
 MAX_CAPTURE_ATTEMPTS = 5
 
 KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py", "-m", "camera.py"]
-INTERPOLATE_FILEPATH = "assets//filament_currents.csv"
+ANALYTICS_FILEPATH = "imgs/analytics.csv"
 TMP_IMAGE_FILEPATH = "imgs/tmp.jpg"
+INTERPOLATE_FILEPATH = "assets/filament_value_to_hv.csv"
 
 
 class Camera(threading.Thread):
@@ -224,18 +226,17 @@ class HighVoltage():
 
     # Not currently working
     def current(self, adc_0_before, adc_1_before, adc_0_during, adc_1_during):
-        #hv_current = round(self.hv.current(adc_0_before, adc_1_before, adc_0_during, adc_1_during), 3)
         #print(f"adc_0_before:{adc_0_before},adc_1_before:{adc_1_before},adc_0_during:{adc_0_during},adc_1_during:{adc_1_during}")
-        #delta_0 = abs(adc_0_before - adc_0_during)
-        #delta_1 = abs(adc_1_before - adc_1_during)
+        v_0_before = (adc_0_before / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
+        v_1_before = (adc_1_before / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
+        v_0_during = (adc_0_during / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
+        v_1_during = (adc_1_during / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
 
-        v_drop_0 = (adc_0_during / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
-        v_drop_1 = (adc_1_during / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
-        v_drop = abs(v_drop_0 - v_drop_1)
+        delta_0 = abs(v_0_before - v_0_during)
+        delta_1 = abs(v_1_before - v_1_during)
+        delta = abs(delta_0 - delta_1)
 
-        filament_current = v_drop / ADC_R_VDROP
-
-        return filament_current
+        return delta / ADC_R_VDROP
 
     def voltage(self, voltage_adc):
         converted_voltage = (voltage_adc / ADC_BIT_DEPTH) * ADC_MAX_VOLTAGE_1
@@ -342,8 +343,8 @@ class Photonic():
         if not self.disable_led: self.led.set(1, 1)
 
         # Grab filament current before capture
-        adc_0_before = self.adc.average(0, 2)
-        adc_1_before = self.adc.average(1, 2)
+        adc_0_before = self.adc.average(0, 1)
+        adc_1_before = self.adc.average(1, 1)
 
         # Wait for filament to heat up
         self.filament.set(True, filament_power)
@@ -358,8 +359,8 @@ class Photonic():
 
         print("Capture started")
 
-        with open("assets//capture_stats.csv", "w") as f:
-            f.write("elasped_time,filament_current,hv_current,hv_voltage,mosfet_voltage,adc_0_before,adc_1_before,adc_0_during,adc_1_during\n")
+        with open(ANALYTICS_FILEPATH, "w") as f:
+            f.write("elasped_time,filament_current,hv_voltage,hv_current,mosfet_voltage,adc_0_before,adc_1_before,adc_0_during,adc_1_during\n")
 
             start_time = time.time()
 
@@ -370,9 +371,9 @@ class Photonic():
                 filament_current = self.filament.power.current()
 
                 # Get hv current
-                adc_0_during = self.adc.get(0, 2)
-                adc_1_during = self.adc.get(1, 2)
-                hv_current = round(self.hv.current(adc_0_before, adc_1_before, adc_0_during, adc_1_during), 3)
+                adc_0_during = self.adc.get(0, 1)
+                adc_1_during = self.adc.get(1, 1)
+                hv_current = round(self.hv.current(adc_0_before, adc_1_before, adc_0_during, adc_1_during), 3) * 1000
 
                 # Get hv voltage
                 hv_voltage = self.hv.voltage(self.adc.get(2, 1))
@@ -380,7 +381,7 @@ class Photonic():
                 # MOSFET voltage
                 mosfet_voltage = self.filament.mosfet_voltage(self.adc.get(3, 1))
 
-                f.write(f"{(time.time() - start_time) * 1000},{filament_current},{hv_current},{hv_voltage},{mosfet_voltage},{adc_0_before},{adc_1_before},{adc_0_during},{adc_1_during}\n")
+                f.write(f"{(time.time() - start_time) * 1000},{filament_current},{hv_voltage},{hv_current},{mosfet_voltage},{adc_0_before},{adc_1_before},{adc_0_during},{adc_1_during}\n")
 
                 if (time.time() - start_time) > (duration / 1000):
                     stop_time = time.time()
@@ -467,7 +468,6 @@ class Photonic():
         filament_current = self.filament.power.current()
         if filament_current < FILAMENT_CURRENT_THRESHOLD:
             print("FAIL: Filament no load:", filament_current)
-            self.filament.set(False)
             return_value = False
 
         self.filament.set(False)
@@ -515,4 +515,5 @@ class Photonic():
             self.led.running = False
         except Exception:
             print("Exception in finish method!")
+
 
