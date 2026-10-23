@@ -15,10 +15,9 @@ else:
 
 scan = XRAY.capture(power, duration) # Power (%), Time (ms)
 
-filename = f"{filename}"
-
-if scan.img:
-    scan.img.save(f"imgs/{filename}.jpg")
+if scan:
+    scan.save(f"imgs/{filename}.jpg")
+    print("Duration:", scan.actual_duration)
 else:
     print("Image failed to be captured")
 

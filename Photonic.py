@@ -58,32 +58,21 @@ MAX_CAPTURE_ATTEMPTS = 5
 
 KILL_PROCESS_EXCEPTIONS = ["http_server.py", "switch_wifi.py", "-m", "camera.py"]
 INTERPOLATE_FILEPATH = "assets//filament_currents.csv"
-
-# Direct / Remote capture options
-DIRECT_CAPTURE = False
-REMOTE_CAPTURE = True
+TMP_IMAGE_FILEPATH = "imgs/tmp.jpg"
 
 
 class Camera(threading.Thread):
-    def __init__(self, capture_method):
+    def __init__(self):
         threading.Thread.__init__(self)
         self.address = ('127.0.0.1', 6000)
-        self.capture_method = capture_method
 
         self.shutter = gpiozero.OutputDevice(CAMERA_SHUTTER_PIN)
         self.trigger(False)
 
         self.ready = threading.Event()
-        self.skip_system_check = None
 
     def run(self):
-        if self.capture_method == REMOTE_CAPTURE:
-            self.remote_mode()
-        elif self.capture_method == DIRECT_CAPTURE:
-            self.direct_mode()
-
-    def direct_mode(self):
-        print("Camera thread started - direct capture mode")
+        print("Camera thread started")
         self.camera = gp.Camera()
         camera_list = list(gp.Camera.autodetect())
 
@@ -95,49 +84,17 @@ class Camera(threading.Thread):
         else:
             raise Exception("No DSLR camera detected")
 
-        self.capture_filepath = None
         self.listening = True
 
         while self.listening:
-            print("Waiting for camera event")
             event_type, event_data = self.camera.wait_for_event(CAMERA_TIMEOUT * 1000)
-            print("Event passed")
 
             if event_type == gp.GP_EVENT_FILE_ADDED:
-                cam_file = self.camera.file_get(event_data.folder, event_data.name, gp.GP_FILE_TYPE_NORMAL)
-                target_path = os.path.join("imgs/raw", event_data.name)
-                cam_file.save(target_path)
-
-                self.capture_filepath = target_path
+                print("Recieved image from camera")
+                self.tmp_image = self.camera.file_get(event_data.folder, event_data.name, gp.GP_FILE_TYPE_NORMAL)
                 self.ready.set()
-#                sleep(0.1)
-#                self.ready.clear()
 
         print("Camera thread stopping")
-
-    def remote_mode(self):
-        print("Camera thread started - remote capture mode")
-
-        self.capture_filepath = None
-        self.ready.clear()
-
-        if self.connect(self.address):
-            self.conn_client.send("skip")
-            self.skip_system_check = self.conn_client.recv()
-
-            if self.ready.is_set():
-                self.conn_client.send("skip-enable")
-
-            self.conn_client.send("close")
-            self.conn_client.close()
-        else:
-            print("Connection failed")
-
-        if self.skip_system_check:
-            print("Skipping system check...")
-            return
-
-        self.client_get_image()
 
     def trigger(self, state):
         if state:
@@ -145,23 +102,17 @@ class Camera(threading.Thread):
         else:
             self.shutter.on()
 
-    def connect(self, address):
-        try:
-            self.conn_client = Client(address, authkey=b'boombrush')
-            return True
-        except Exception as e:
-            print("Could not connect to Photonic program:", e)
+    def save(self, filepath, text=""):
+        self.tmp_image.save(TMP_IMAGE_FILEPATH)
+        self.image = Image.open(TMP_IMAGE_FILEPATH)
 
-        return False
+        image_draw = ImageDraw.Draw(self.image)
+        image_font = ImageFont.truetype("assets/ARIAL.TTF", 36)
+        image_draw.text((40, 40), text, fill=(255, 255, 255), font=image_font)
 
-    def client_get_image(self):
-        if self.connect(self.address):
-            self.conn_client.send("image")
-            self.capture_filepath = self.conn_client.recv()
-
-            self.conn_client.send("close")
-            self.conn_client.close()
-            self.ready.set()
+        self.image.save(filepath)
+        os.remove(TMP_IMAGE_FILEPATH)
+        self.ready.clear()
 
 
 class PowerMonitor():
@@ -329,19 +280,22 @@ class Interpolation():
             if self.currents[i] > value:
                 return (self.dacs[i] + self.dacs[i-1]) / 2
 
-
 class ImageObject():
-    def __init__(self, img, filament_current, filament_power, mosfet_voltage, hv_current_estimate, hv_voltage):
-        self.img = img
+    def __init__(self, XRAY, actual_duration, filament_current, hv_current, hv_voltage, mosfet_voltage, filament_power):
+        self.XRAY = XRAY
+        self.actual_duration = actual_duration
         self.filament_current = filament_current
-        self.filament_power = filament_power
-        self.mosfet_voltage = mosfet_voltage
-        self.hv_current_estimate = hv_current_estimate
+        self.hv_current = hv_current
         self.hv_voltage = hv_voltage
+        self.mosfet_voltage = mosfet_voltage
+        self.filament_power = filament_power
+
+    def save(self, filename):
+        self.XRAY.dslr.save(filename, self.XRAY.capture_settings)
 
 
 class Photonic():
-    def __init__(self, ignore_exceptions=False, disable_led=False, capture_method=DIRECT_CAPTURE):
+    def __init__(self, ignore_exceptions=False, disable_led=False):
         # At exit functions
         self.finished = False
         atexit.register(self.finish)
@@ -352,7 +306,6 @@ class Photonic():
         self.ignore_exceptions = ignore_exceptions
         self.capture_attempts = 0
         self.disable_led = disable_led
-        self.capture_method = capture_method
         self.interpolation = Interpolation(INTERPOLATE_FILEPATH)
 
         # Kill other Python XRAY processes
@@ -376,7 +329,7 @@ class Photonic():
 
         # DSLR init
         try:
-            self.dslr = Camera(capture_method)
+            self.dslr = Camera()
             self.dslr.start()
             sleep(1)
         except Exception as e:
@@ -391,7 +344,7 @@ class Photonic():
 
         # Grab filament current before capture
         adc_0_before = self.adc.average(0, 2)
-        adc_current_1_before = self.adc.average(1, 2)
+        adc_1_before = self.adc.average(1, 2)
 
         # Wait for filament to heat up
         self.filament.set(True, filament_power)
@@ -430,7 +383,9 @@ class Photonic():
 
                 f.write(f"{(time.time() - start_time) * 1000},{filament_current},{hv_current},{hv_voltage},{mosfet_voltage},{adc_0_before},{adc_1_before},{adc_0_during},{adc_1_during}\n")
 
-                #if (time.time() - start_time) > (duration / 1000): break
+                if (time.time() - start_time) > (duration / 1000):
+                    stop_time = time.time()
+                    break
 
         # Turn camera, HV and filament off
         self.dslr.trigger(False)
@@ -438,8 +393,8 @@ class Photonic():
         self.filament.set(False)
         stop_time = time.time()
 
-        capture_settings = f"{power}% {duration}ms {int(filament_current)}mA ~ {filament_power} {mosfet_voltage}V ~ {hv_voltage}kV"
-        print(f"Capture finished: " + capture_settings)
+        self.capture_settings = f"{power}% {duration}ms {int(filament_current)}mA ~ {filament_power} {mosfet_voltage}V ~ {hv_voltage}kV"
+        print(f"Capture finished: " + self.capture_settings)
 
         # LED to yellow
         if not self.disable_led: self.led.set(1, 1)
@@ -448,26 +403,12 @@ class Photonic():
         print("Waiting for camera capture event...")
         self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
 
-        #if self.capture_method == DIRECT_CAPTURE:
-        #    self.dslr.client_get_image()
-
         if self.dslr.ready.is_set():
-            print("Received", self.dslr.capture_filepath)
-
-            self.dslr.listening = False
             self.capture_attempts = 0
             # LED to green
             if not self.disable_led: self.led.set(0, 1, turn_off_period = 10)
 
-            # Add parameters as text at top left of picture
-            img = Image.open(self.dslr.capture_filepath)
-            image_draw = ImageDraw.Draw(img)
-            image_font = ImageFont.truetype("assets/ARIAL.TTF", 36)
-            image_draw.text((40, 40), capture_settings, fill=(255, 255, 255), font=image_font)
-
-            self.capture_attempts = 0
-
-            return ImageObject(img, filament_current, filament_power, mosfet_voltage, hv_current_estimate, hv_voltage)
+            return ImageObject(self, (stop_time - start_time) * 1000, filament_current, hv_current, hv_voltage, mosfet_voltage, filament_power)
 
         print("Did not receive capture after timeout period. Retrying...")
 
@@ -475,11 +416,11 @@ class Photonic():
 
         # Reached max capture attempts
         print("Maximum capture attempts reached")
-        return None
+        return False
 
     def manage_python_processes(self):
         current_pid = os.getpid()
-        camera_script_running = False
+        #camera_script_running = False
 
         for process_id in psutil.pids():
             if process_id == current_pid: continue
@@ -498,23 +439,22 @@ class Photonic():
                     if filename not in KILL_PROCESS_EXCEPTIONS:
                         p.kill()
 
-                    if filename == "camera.py":
-                        if self.capture_method == DIRECT_CAPTURE:
-                            print("Killing gphoto2 camera script")
-                            p.kill()
-                        else:
-                            camera_script_running = True
+                    #if filename == "camera.py":
+                        #if self.capture_method == DIRECT_CAPTURE:
+                        #    print("Killing gphoto2 camera script")
+                        #    p.kill()
+                        #else:
+                        #    camera_script_running = True
 
-        if self.capture_method == REMOTE_CAPTURE and not camera_script_running:
-            camera_thread = subprocess.Popen(["python", "/home/boombrush/Photonic/boot/camera.py"])
-            sleep(1)
+        #if self.capture_method == REMOTE_CAPTURE and not camera_script_running:
+        #    camera_thread = subprocess.Popen(["python", "/home/boombrush/Photonic/boot/camera.py"])
+        #    sleep(1)
 
     def system_check(self):
         return_value = True
 
-        sleep(0.1)
-        if self.dslr.skip_system_check:
-            return True
+        #if self.dslr.skip_system_check:
+        #    return True
 
         # Filament
         print("Checking filament voltage")
@@ -549,8 +489,8 @@ class Photonic():
 
             try:
                 self.dslr.ready.wait(timeout=CAMERA_TIMEOUT)
-                if self.dslr.capture_filepath:
-                    print("Recieved", self.dslr.capture_filepath)
+
+                if self.dslr.ready.is_set():
                     break
                 else:
                     print("FAIL: DSLR Capture")
@@ -560,43 +500,17 @@ class Photonic():
             except AttributeError:
                 return_value = False
 
-        if self.capture_method and return_value:
-            if self.dslr.connect(self.dslr.address):
-                self.dslr.conn_client.send("skip-enable")
-                self.dslr.conn_client.send("close")
-                self.dslr.conn_client.close()
-
-        print("LED testing")
-
-        self.led.set(1, 0)
-        sleep(2)
-        self.led.set(1, 1)
-        sleep(2)
-        self.led.set(0, 1)
-        sleep(2)
-        self.led.set(0, 0)
-        sleep(2)
-
-        self.led.flash(1, 0)
-        sleep(5)
-        self.led.set(0, 0)
-        sleep(5)
-
-        self.led.flash(1, 1)
-        sleep(5)
-        self.led.set(0, 0)
-        sleep(5)
-
-        self.led.flash(0, 1)
-        sleep(5)
-        self.led.set(0, 0)
+        #if self.capture_method and return_value:
+        #    if self.dslr.connect(self.dslr.address):
+        #        self.dslr.conn_client.send("skip-enable")
+        #        self.dslr.conn_client.send("close")
+        #        self.dslr.conn_client.close()
 
         return return_value
 
     # Cleanup method to make sure controls are gracefully stopped
     def finish(self):
         if self.finished: return False
-        print("Exiting...")
 
         try:
             self.dslr.listening = False

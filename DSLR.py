@@ -52,6 +52,7 @@ class Camera(threading.Thread):
 
     def save(self, filepath, text=""):
         self.image.save(IMG_TMP_FILEPATH)
+
         img = Image.open(IMG_TMP_FILEPATH)
         image_draw = ImageDraw.Draw(img)
         image_font = ImageFont.truetype("assets/ARIAL.TTF", 36)
@@ -66,12 +67,14 @@ if __name__ == "__main__":
 
     dslr.start()
 
-    for i in range(5):
-        print("DSLR Capture", i)
-        dslr.ready.wait(10)
+    dslr.trigger(True)
+    sleep(1)
+    dslr.trigger(False)
 
-        if dslr.ready.is_set():
-            print("Saving image")
-            dslr.save("imgs/dslr.jpg")
-        else:
-            print("Did not capture")
+    dslr.ready.wait(10)
+
+    if dslr.ready.is_set():
+        print("Saving image")
+        dslr.save("imgs/dslr.jpg")
+    else:
+        print("Did not capture")

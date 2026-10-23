@@ -34,22 +34,20 @@ relay.on()
 dac.set_voltage(4095)
 
 while True:
-    #print("Relay on")
-    #relay.on()
-    #dac.set_voltage(4095)
-    #sleep(0.25)
-    #mosfet_voltage = (adc.average(3, 1) / 32768) * 4.096
-    #print("MOSFET:", mosfet_voltage)
-    #sleep(0.25)
+    print("Relay on")
+    relay.on()
+    dac.set_voltage(4095)
+    sleep(0.5)
+    mosfet_voltage = (adc.average(3, 1) / 32768) * 4.096
+    print("MOSFET:", mosfet_voltage)
     print("Current", ina.current())
-    sleep(0.1)
+    sleep(5)
 
-    #print("Relay off")
-    #relay.off()
-    #dac.set_voltage(0)
-    #sleep(0.5)
-    #mosfet_voltage = (adc.average(3, 1) / 32768) * 4.096
-    #print("MOSFET:", mosfet_voltage)
-    #sleep(0.25)
-    #print("Current", ina.current())
-    #sleep(0.25)
+    print("Relay off")
+    relay.off()
+    sleep(0.5)
+    dac.set_voltage(0)
+    mosfet_voltage = (adc.average(3, 1) / 32768) * 4.096
+    print("MOSFET:", mosfet_voltage)
+    print("Current", ina.current())
+    sleep(1)

@@ -39,15 +39,11 @@ class LED(threading.Thread):
         address = ('127.0.0.1', 4000)     # family is deduced to be 'AF_INET'
 
         while self.running:
-            print("LED")
             listener = Listener(address, authkey=b'boombrush')
             self.conn = listener.accept()
-            print('connection accepted from', listener.last_accepted)
 
             while self.running:
-                print("LED")
                 msg = self.conn.recv()
-
                 if len(msg) == 2:
                     self.led(msg[0], msg[1])
                 elif len(msg) == 3:
@@ -57,11 +53,6 @@ class LED(threading.Thread):
                 elif msg == 'close':
                     self.conn.close()
                     break
-                elif msg.split(",")[0] == "msg":
-                    print("server recieved:", msg)
-                    sleep(5)
-                    self.conn.send(msg[1])
-                    print("server sent msg back")
 
             listener.close()
 
@@ -69,7 +60,8 @@ class LED(threading.Thread):
 
     def set(self, r, g, turn_off_period=0, flash=False):
         self.connect()
-        if not flash: self.blinking = False
+
+        #if not flash: self.conn_client.send([False])
 
         if turn_off_period == 0:
             self.conn_client.send([r, g])
@@ -116,46 +108,24 @@ if __name__ == "__main__":
     led = LED()
     led.start()
 
-    led.set(1, 0)
-    sleep(2)
-    led.set(1, 1)
-    sleep(2)
-    led.set(0, 1)
-    sleep(2)
+#    led.set(1, 0)
+#    sleep(2)
+#    led.set(1, 1)
+#    sleep(2)
+#    led.set(0, 1)
+#    sleep(2)
 
     led.flash(1, 0)
     sleep(5)
     led.set(0, 0)
-
-    led.set(1, 0)
-    sleep(5)
-    led.set(1, 1)
-    sleep(5)
-    led.set(0, 1)
-    sleep(5)
-    led.set(0, 0)
     sleep(5)
 
+#    led.flash(0, 1)
+#    sleep(5)
+#    led.set(0, 0)
+#    sleep(5)
 
-
-    #led.conn_client.send("msg,abc")
-    #print("Sent message")
-    #recieved = led.conn_client.recv()
-    #print("Recieved message")
-    #print(recieved)
-    #sleep(1)
-    #print("post sleep")
-    #msg = led.conn.recv()
-    #print("client recieved:", msg)
-
-
-
-    '''
-    while True:
-        led.set(1, 0)
-        sleep(1)
-        led.set(1, 1)
-        sleep(1)
-        led.set(0, 1)
-        sleep(1)
-    '''
+#    led.flash(1, 1)
+#    sleep(5)
+#    led.set(0, 0)
+#    sleep(5)
